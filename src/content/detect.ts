@@ -24,7 +24,26 @@ export type FieldMatch = {
   key: string;
   confidence: number;
   label: string;
+  /** Set when the match came from a hand-written override rather than a guess. */
+  control?: "input" | "select" | "combo";
 };
+
+/** Mirror of lib/shared/field-map.ts in the main repo. */
+export type FieldRule = { key: string; selector: string; control?: "input" | "select" | "combo" };
+export type SiteRules = { host: string; rules: readonly FieldRule[] };
+export type FieldMap = { version: number; sites: readonly SiteRules[] };
+
+/**
+ * Rules for the current host. Matched by hostname suffix so one "greenhouse.io"
+ * block covers boards. and job-boards. alike.
+ */
+function rulesFor(map: FieldMap | null, hostname: string): readonly FieldRule[] {
+  if (!map?.sites) return [];
+
+  return map.sites
+    .filter((site) => hostname === site.host || hostname.endsWith(`.${site.host}`))
+    .flatMap((site) => site.rules);
+}
 
 const CONFIDENCE_THRESHOLD = 0.5;
 
@@ -165,11 +184,45 @@ function scoreKeywords(signature: string): { key: string; confidence: number } |
  * Takes a ParentNode so it can run against the document, a shadow root, or a
  * detached fragment in tests.
  */
-export function detectFields(root: ParentNode = document): FieldMatch[] {
+export function detectFields(
+  root: ParentNode = document,
+  map: FieldMap | null = null,
+  hostname: string = typeof location === "undefined" ? "" : location.hostname,
+): FieldMatch[] {
   const matches: FieldMatch[] = [];
   const claimed = new Set<string>();
+  const seen = new Set<Element>();
+
+  // Override rules run FIRST and win outright. They exist precisely because the
+  // automatic path got this form wrong, so letting autocomplete outrank them
+  // would make them useless on the sites that need them most.
+  for (const rule of rulesFor(map, hostname)) {
+    if (!VAULT_FIELDS.has(rule.key) || claimed.has(rule.key)) continue;
+
+    let element: Element | null = null;
+    try {
+      element = root.querySelector(rule.selector);
+    } catch {
+      // A malformed selector in the served map must not take down detection for
+      // the whole page - skip the rule and carry on with the heuristics.
+      continue;
+    }
+
+    if (!element || !isFillable(element)) continue;
+
+    claimed.add(rule.key);
+    seen.add(element);
+    matches.push({
+      element,
+      key: rule.key,
+      confidence: 1,
+      label: labelOf(element),
+      control: rule.control,
+    });
+  }
 
   for (const element of root.querySelectorAll("input, textarea, select")) {
+    if (seen.has(element)) continue;
     if (!isFillable(element)) continue;
 
     const autocomplete = element.getAttribute("autocomplete")?.trim().toLowerCase();

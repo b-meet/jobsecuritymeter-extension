@@ -1,7 +1,7 @@
-import { detectFields } from "./detect";
+import { detectFields, type FieldMap } from "./detect";
 import { fillField } from "./fill";
 import { VAULT_FIELDS } from "@/shared/vault";
-import type { ContentMessage, FillReport } from "@/shared/messages";
+import type { ContentMessage, FillReport, Response } from "@/shared/messages";
 
 /**
  * Content script.
@@ -14,15 +14,23 @@ import type { ContentMessage, FillReport } from "@/shared/messages";
  * form is inside the iframe rather than the top document.
  */
 
-function runFill(data: Record<string, string | boolean>): FillReport {
+function runFill(data: Record<string, string | boolean>, map: FieldMap | null): FillReport {
   const report: FillReport = { filled: [], skipped: [] };
 
-  for (const match of detectFields(document)) {
+  for (const match of detectFields(document, map)) {
     const value = data[match.key];
 
     if (value === undefined || value === "") {
       // Nothing saved for this field - not worth reporting as a failure, the
       // user simply has not filled that part of their profile.
+      continue;
+    }
+
+    // Custom dropdowns need a click-open/type/pick sequence that fill.ts does
+    // not implement yet. Reported rather than attempted: a half-driven combobox
+    // can leave a form in a worse state than an untouched one.
+    if (match.control === "combo") {
+      report.skipped.push({ label: match.label, reason: "dropdown needs a manual pick" });
       continue;
     }
 
@@ -40,10 +48,21 @@ function runFill(data: Record<string, string | boolean>): FillReport {
 chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
   if (message?.type !== "FILL_NOW") return false;
 
-  const report = runFill(message.data);
-  showToast(report);
-  sendResponse(report);
-  return false;
+  // The map is cached in the worker, so this is normally a storage read rather
+  // than a network call. A failure here is not fatal - detection falls back to
+  // its bundled heuristics.
+  chrome.runtime
+    .sendMessage({ type: "GET_FIELD_MAP" })
+    .then((response: Response<FieldMap | null>) => (response?.ok ? response.data : null))
+    .catch(() => null)
+    .then((map) => {
+      const report = runFill(message.data, map);
+      showToast(report);
+      sendResponse(report);
+    });
+
+  // Keeps the channel open for the async handler above.
+  return true;
 });
 
 /**

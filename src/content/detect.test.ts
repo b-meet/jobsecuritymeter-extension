@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectFields } from "./detect";
+import { detectFields, type FieldMap } from "./detect";
+
+function map(rules: FieldMap["sites"][number]["rules"], host = "boards.greenhouse.io"): FieldMap {
+  return { version: 1, sites: [{ host, rules }] };
+}
 
 function form(html: string): HTMLElement {
   document.body.innerHTML = `<form>${html}</form>`;
@@ -80,6 +84,61 @@ describe("detectFields", () => {
   it("leaves unrecognised fields alone rather than guessing", () => {
     const root = form(`<label for="x">Favourite dinosaur</label><input id="x" />`);
     expect(detectFields(root)).toHaveLength(0);
+  });
+
+  describe("remote field map", () => {
+    const rules = [{ key: "phone", selector: "#weird" }] as const;
+
+    it("applies an override rule the heuristics would have missed", () => {
+      // No label, no autocomplete, an opaque id - unmatchable without the rule.
+      const root = form(`<input id="weird" />`);
+
+      expect(detectFields(root, null, "boards.greenhouse.io")).toHaveLength(0);
+      expect(detectFields(root, map(rules), "boards.greenhouse.io")[0]?.key).toBe("phone");
+    });
+
+    it("lets an override beat autocomplete", () => {
+      // Overrides exist because the automatic path got the form wrong, so they
+      // must outrank it - otherwise they are useless where they matter most.
+      const root = form(`<input id="weird" autocomplete="email" />`);
+      const found = detectFields(root, map(rules), "boards.greenhouse.io");
+
+      expect(found).toHaveLength(1);
+      expect(found[0]!.key).toBe("phone");
+    });
+
+    it("matches a host by suffix", () => {
+      const root = form(`<input id="weird" />`);
+      // One "greenhouse.io" block should cover every subdomain.
+      expect(detectFields(root, map(rules, "greenhouse.io"), "job-boards.greenhouse.io")).toHaveLength(1);
+    });
+
+    it("ignores rules for a different host", () => {
+      const root = form(`<input id="weird" />`);
+      expect(detectFields(root, map(rules, "lever.co"), "boards.greenhouse.io")).toHaveLength(0);
+    });
+
+    it("does not let a suffix match on a lookalike domain", () => {
+      const root = form(`<input id="weird" />`);
+      // "notgreenhouse.io" must not match a "greenhouse.io" rule.
+      expect(detectFields(root, map(rules, "greenhouse.io"), "notgreenhouse.io")).toHaveLength(0);
+    });
+
+    it("survives a malformed selector in the served map", () => {
+      // The map is fetched at runtime, so a bad rule must not take down
+      // detection for the whole page.
+      const root = form(`<label for="e">Email</label><input id="e" />`);
+      const broken = map([{ key: "phone", selector: "###" }]);
+
+      expect(detectFields(root, broken, "boards.greenhouse.io")[0]?.key).toBe("email");
+    });
+
+    it("carries the control hint through to the caller", () => {
+      const root = form(`<input id="weird" />`);
+      const combo = map([{ key: "phone", selector: "#weird", control: "combo" as const }]);
+
+      expect(detectFields(root, combo, "boards.greenhouse.io")[0]?.control).toBe("combo");
+    });
   });
 
   it("finds textarea and select elements too", () => {
