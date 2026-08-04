@@ -1,0 +1,27 @@
+{
+  "name": "jobsecuritymeter-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Job Autofill - fills job applications from your Job Security Meter profile.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run check:contract && tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:contract": "node scripts/check-contract.mjs"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^26.1.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.103.0"
+  }
+}

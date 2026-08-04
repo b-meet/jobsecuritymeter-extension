@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Guards the copy of the vault contract against accidental local edits.
+      - run: npm run check:contract
+      - run: npm run typecheck
+      - run: npm test
+      # A build failure here means the extension would not load at all.
+      - run: npx vite build
+        env:
+          VITE_SUPABASE_PUBLISHABLE_KEY: build-time-placeholder
