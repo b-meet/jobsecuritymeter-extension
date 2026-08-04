@@ -23,56 +23,72 @@ const ATS_MATCHES = [
   "https://*.myworkdayjobs.com/*",
 ];
 
-const SITE = "https://jobsecuritymeter.com";
+const SITE = process.env.VITE_SITE_ORIGIN ?? "https://jobsecuritymeter.com";
 
-export default defineManifest({
-  manifest_version: 3,
-  name: "Job Autofill by Job Security Meter",
-  version: "0.1.0",
-  description:
-    "Fill job applications from your saved profile. One click across Greenhouse, Lever, Ashby and more.",
+/**
+ * Loopback origins, added ONLY to a development build.
+ *
+ * Match patterns ignore ports, so `http://localhost/*` covers :3000 and
+ * friends. This must never reach a published build: `externally_connectable`
+ * decides who may hand the extension a session, and trusting localhost in the
+ * store build would accept one from any dev server on the user's machine.
+ */
+const DEV_MATCHES = ["http://localhost/*", "http://127.0.0.1/*"];
 
-  permissions: [
-    // chrome.storage.local: the session and the cached field map.
-    "storage",
-    // Lets the popup's "Fill this page" button reach a tab the content script
-    // did not auto-inject into. Narrower than "tabs", which would expose every
-    // tab's URL to us.
-    "activeTab",
-    "scripting",
-  ],
+export default defineManifest((env) => {
+  const isDev = env.mode === "development";
+  const siteMatches = isDev ? [`${SITE}/*`, ...DEV_MATCHES] : [`${SITE}/*`];
 
-  host_permissions: [`${SITE}/*`, ...ATS_MATCHES],
+  return {
+    manifest_version: 3,
+    name: "Job Autofill by Job Security Meter",
+    version: "0.1.0",
+    description:
+      "Fill job applications from your saved profile. One click across Greenhouse, Lever, Ashby and more.",
 
-  /**
-   * The sign-in handshake. jobsecuritymeter.com/extension/connect is already
-   * cookie-authenticated, so it can hand us a Supabase session directly via
-   * chrome.runtime.sendMessage - no second OAuth client, no password ever
-   * touching the extension. Only our own origin may do this.
-   */
-  externally_connectable: { matches: [`${SITE}/*`] },
+    permissions: [
+      // chrome.storage.local: the session and the cached field map.
+      "storage",
+      // Lets the popup's "Fill this page" button reach a tab the content script
+      // did not auto-inject into. Narrower than "tabs", which would expose every
+      // tab's URL to us.
+      "activeTab",
+      "scripting",
+    ],
 
-  background: { service_worker: "src/background/index.ts", type: "module" },
+    host_permissions: [...siteMatches, ...ATS_MATCHES],
 
-  content_scripts: [
-    {
-      matches: ATS_MATCHES,
-      js: ["src/content/index.ts"],
-      // Greenhouse and Lever are embedded as iframes on company career sites,
-      // so the top frame alone would miss most real application forms.
-      all_frames: true,
-      run_at: "document_idle",
+    /**
+     * The sign-in handshake. jobsecuritymeter.com/extension/connect is already
+     * cookie-authenticated, so it can hand us a Supabase session directly via
+     * chrome.runtime.sendMessage - no second OAuth client, no password ever
+     * touching the extension. Only our own origin may do this - plus loopback
+     * in a dev build, never in a published one.
+     */
+    externally_connectable: { matches: siteMatches },
+
+    background: { service_worker: "src/background/index.ts", type: "module" },
+
+    content_scripts: [
+      {
+        matches: ATS_MATCHES,
+        js: ["src/content/index.ts"],
+        // Greenhouse and Lever are embedded as iframes on company career sites,
+        // so the top frame alone would miss most real application forms.
+        all_frames: true,
+        run_at: "document_idle",
+      },
+    ],
+
+    action: {
+      default_popup: "src/popup/index.html",
+      default_title: "Job Autofill",
     },
-  ],
 
-  action: {
-    default_popup: "src/popup/index.html",
-    default_title: "Job Autofill",
-  },
-
-  // No remote code: everything is bundled. Required for the store listing and
-  // enforced here so a future dependency cannot quietly add a CDN script.
-  content_security_policy: {
-    extension_pages: "script-src 'self'; object-src 'self'",
-  },
+    // No remote code: everything is bundled. Required for the store listing and
+    // enforced here so a future dependency cannot quietly add a CDN script.
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'self'",
+    },
+  };
 });

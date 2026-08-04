@@ -1,4 +1,4 @@
-import { SITE_ORIGIN } from "@/shared/config";
+import { isTrustedOrigin } from "@/shared/config";
 import { adoptSession, clearSession, currentEmail } from "./auth";
 import { AuthError, fetchFieldMap, fetchVault } from "./api";
 import type { ContentMessage, ExternalRequest, Request, Response, Status } from "@/shared/messages";
@@ -83,7 +83,7 @@ chrome.runtime.onMessage.addListener((request: Request, _sender, sendResponse) =
  */
 chrome.runtime.onMessageExternal.addListener(
   (request: ExternalRequest, sender, sendResponse) => {
-    if (sender.origin !== SITE_ORIGIN) {
+    if (!isTrustedOrigin(sender.origin)) {
       sendResponse({ ok: false, error: "Unauthorized origin." });
       return false;
     }

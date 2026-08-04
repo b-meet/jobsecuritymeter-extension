@@ -8,7 +8,52 @@
  * role key must NEVER appear in this repo.
  */
 
-export const SITE_ORIGIN = "https://jobsecuritymeter.com";
+export const PROD_ORIGIN = "https://jobsecuritymeter.com";
+
+/**
+ * Where the extension looks for the site.
+ *
+ * Overridable so a dev build can point at a local Next server:
+ *   VITE_SITE_ORIGIN=http://localhost:3000 npm run dev
+ *
+ * Without this the extension would talk to production while you are testing
+ * against localhost, which looks like the extension is broken when in fact it
+ * is reading a different database.
+ */
+export const SITE_ORIGIN = import.meta.env.VITE_SITE_ORIGIN ?? PROD_ORIGIN;
+
+/**
+ * True only in a `vite build`-for-development or `vite dev` bundle.
+ *
+ * Every localhost allowance in this codebase hangs off this flag. A PRODUCTION
+ * BUILD MUST NEVER TRUST LOCALHOST: `externally_connectable` is what decides
+ * who may hand this extension a session, and a published extension that
+ * accepted `http://localhost` would take one from any dev server on the user's
+ * machine - including one served by a malicious page's local helper.
+ */
+export const IS_DEV = import.meta.env.DEV;
+
+/** Loopback hosts a dev build will accept a session from. */
+const DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/**
+ * Is this origin allowed to hand us a Supabase session?
+ *
+ * Production is an exact string match. Dev additionally accepts loopback on any
+ * port, because the Next dev server's port moves around and match patterns
+ * ignore ports anyway.
+ */
+export function isTrustedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (origin === SITE_ORIGIN || origin === PROD_ORIGIN) return true;
+  if (!IS_DEV) return false;
+
+  try {
+    return DEV_HOSTS.has(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
 
 export const API = {
   vault: `${SITE_ORIGIN}/api/vault`,
