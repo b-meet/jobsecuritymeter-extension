@@ -72,4 +72,8 @@ export const STORAGE_KEYS = {
   session: "jsm.session",
   fieldMap: "jsm.fieldMap",
   fieldMapEtag: "jsm.fieldMapEtag",
+  /** Where the user last parked the on-page handle. See content/ui/dock.ts. */
+  dock: "jsm.dock",
+  /** Origins the user has told us to stay off. */
+  mutedOrigins: "jsm.mutedOrigins",
 } as const;

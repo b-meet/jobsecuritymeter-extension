@@ -12,10 +12,22 @@ import type { VaultData } from "./vault";
 /** Content script or popup -> background. */
 export type Request =
   | { type: "GET_STATUS" }
+  | { type: "GET_CONNECTED" }
   | { type: "GET_VAULT" }
   | { type: "GET_FIELD_MAP" }
   | { type: "SIGN_OUT" }
-  | { type: "FILL_ACTIVE_TAB" };
+  | { type: "FILL_ACTIVE_TAB" }
+  | { type: "OPEN_PAGE"; page: SitePage };
+
+/**
+ * Pages the on-page UI can ask for.
+ *
+ * Content scripts have no `chrome.tabs`, so every navigation they offer has to
+ * be routed through the worker. Naming the page rather than passing a URL keeps
+ * the destination list here rather than letting a compromised content script
+ * open anything it likes.
+ */
+export type SitePage = "connect" | "account";
 
 /** The website's /extension/connect page -> background, via externally_connectable. */
 export type ExternalRequest = {
