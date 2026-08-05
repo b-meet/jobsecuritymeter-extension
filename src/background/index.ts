@@ -1,4 +1,4 @@
-import { SITE_ORIGIN } from "@/shared/config";
+import { API, isTrustedOrigin, SITE_ORIGIN } from "@/shared/config";
 import { adoptSession, clearSession, currentEmail } from "./auth";
 import { AuthError, fetchFieldMap, fetchVault } from "./api";
 import type { ContentMessage, ExternalRequest, Request, Response, Status } from "@/shared/messages";
@@ -31,6 +31,23 @@ async function handle(request: Request): Promise<Response<unknown>> {
     switch (request.type) {
       case "GET_STATUS":
         return { ok: true, data: await status() };
+
+      /**
+       * Storage-only connection check, deliberately separate from GET_STATUS.
+       *
+       * The on-page UI asks this on every application form it mounts on, in
+       * every frame. GET_STATUS fetches the vault to build its completion
+       * meter, so answering with it would put a network round-trip on page
+       * load for a question we can settle from chrome.storage.
+       */
+      case "GET_CONNECTED":
+        return { ok: true, data: (await currentEmail()) !== null };
+
+      case "OPEN_PAGE": {
+        const url = request.page === "account" ? `${SITE_ORIGIN}/account#autofill` : API.connect;
+        await chrome.tabs.create({ url });
+        return { ok: true, data: null };
+      }
 
       case "GET_VAULT":
         return { ok: true, data: await fetchVault() };
@@ -83,7 +100,7 @@ chrome.runtime.onMessage.addListener((request: Request, _sender, sendResponse) =
  */
 chrome.runtime.onMessageExternal.addListener(
   (request: ExternalRequest, sender, sendResponse) => {
-    if (sender.origin !== SITE_ORIGIN) {
+    if (!isTrustedOrigin(sender.origin)) {
       sendResponse({ ok: false, error: "Unauthorized origin." });
       return false;
     }

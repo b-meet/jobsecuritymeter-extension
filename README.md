@@ -54,6 +54,55 @@ means requests carry the extension's own origin and satisfy the API's
 `EXTENSION_ORIGINS` allowlist — a content script's `fetch` would carry
 `greenhouse.io` instead.
 
+### Getting noticed
+
+Nobody remembers a toolbar icon. The content script detects the form on load and
+puts up its own UI, so the extension arrives on the page rather than waiting to
+be summoned.
+
+Two surfaces, because one of them cannot always work (see below):
+
+- **The handle and its card.** A draggable circle parked on an edge of the
+  window. It opens itself once, the first time we see at least
+  `OFFER_THRESHOLD` confident matches on a page — enough to be sure it is a real
+  application form and not a listing page with a search box. After that it stays
+  as a handle wherever the user parked it; the edge and height persist in
+  `chrome.storage.local`, stored as a FRACTION of viewport height so the same
+  dock lands sensibly on a laptop and a tall monitor. "Not on this site" mutes
+  the origin for good.
+- **The focus chip.** A small "Fill" button inside the right edge of a field the
+  user has just focused, when we recognise it and it is still empty. Fills that
+  one field.
+
+The chip sits *inside* the field rather than below it because Chrome's own
+autofill dropdown is browser UI painted above the page — no `z-index` competes
+with it, so a chip underneath would be hidden behind Chrome's suggestions on
+exactly the fields (name, email, address) where we both have something to say.
+
+Neither surface ever fills anything on its own. Every path ends at a button the
+user presses, for the same reason detection refuses to guess: a wrong value the
+user does not notice before submitting is worse than a blank.
+
+### Why an iframe changes the answer
+
+`boards.greenhouse.io` and `jobs.lever.co` are usually embedded as cross-origin
+iframes on a company's careers page. That host page is not in
+`host_permissions`, so the content script runs **only inside the iframe** — and
+those embeds are typically resized to their content height, meaning the iframe
+has no scrollbar of its own and the parent page does the scrolling.
+
+In that arrangement `position: fixed` inside the iframe resolves against the
+iframe's full height rather than the visible window, so a "docked" handle would
+sit halfway down the document and scroll away like any other element. Nothing
+inside the frame can fix it: it cannot read the parent's scroll position, and
+cross-origin it never will.
+
+So `placementFor()` detects the case and the handle anchors to the top-right of
+the form instead of the viewport — visible when the user reaches the form, which
+is the moment that matters. The chip covers everything after that, because it
+positions against a field inside the same document. This is the main reason the
+feature is not just the docked panel.
+
 ### Field matching
 
 Three layers, most reliable first:
