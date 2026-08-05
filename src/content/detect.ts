@@ -1,4 +1,4 @@
-import { VAULT_FIELDS } from "@/shared/vault";
+import { FILLABLE_FIELDS } from "./fields";
 
 /**
  * Mapping DOM fields to vault keys.
@@ -49,6 +49,7 @@ const CONFIDENCE_THRESHOLD = 0.5;
 
 /** Keywords per vault key, most specific first. */
 const KEYWORDS: Record<string, string[]> = {
+  fullName: ["full name", "legal name", "candidate name", "applicant name", "your name", "name"],
   firstName: ["first name", "firstname", "given name", "forename"],
   lastName: ["last name", "lastname", "surname", "family name"],
   preferredName: ["preferred name", "nickname", "goes by"],
@@ -62,16 +63,40 @@ const KEYWORDS: Record<string, string[]> = {
   state: ["state", "province", "region", "county"],
   postalCode: ["postal code", "zip code", "zip", "postcode"],
   country: ["country"],
+  currentLocation: ["current location", "where are you based", "based in", "your location", "location"],
   linkedinUrl: ["linkedin"],
   githubUrl: ["github"],
   portfolioUrl: ["portfolio", "website", "personal site"],
-  otherUrl: ["other website", "other link", "other url"],
   workAuthorized: ["authorized to work", "authorised to work", "work authorization", "legally authorized"],
   requiresSponsorship: ["sponsorship", "require sponsorship", "visa sponsorship"],
   currentCompany: ["current company", "current employer", "company", "employer"],
   currentTitle: ["current title", "job title", "current role", "occupation"],
   yearsExperience: ["years of experience", "years experience", "experience in years"],
-  desiredSalary: ["desired salary", "salary expectation", "expected salary", "compensation"],
+  // CTC ("cost to company") is how most Indian job forms ask both of these, and
+  // they are routinely asked side by side. Putting the desired figure in the
+  // box asking what you earn now is the kind of mistake nobody spots before
+  // submitting, which is why the two lists exclude each other below.
+  currentSalary: [
+    "current ctc",
+    "current cost to company",
+    "current salary",
+    "current compensation",
+    "current package",
+    "present salary",
+    "existing salary",
+    "ctc",
+  ],
+  desiredSalary: [
+    "expected ctc",
+    "expected cost to company",
+    "desired ctc",
+    "desired salary",
+    "expected salary",
+    "salary expectation",
+    "expected compensation",
+    "expected package",
+    "compensation",
+  ],
   salaryCurrency: ["currency"],
   noticePeriod: ["notice period", "notice"],
   earliestStartDate: ["start date", "available from", "availability date", "earliest start"],
@@ -86,9 +111,81 @@ const KEYWORDS: Record<string, string[]> = {
   disabilityStatus: ["disability", "disabled"],
 };
 
-/** autocomplete token -> vault key, derived from the shared field definitions. */
+/**
+ * Words that disqualify a key even though one of its keywords matched.
+ *
+ * THIS IS WHAT MAKES THE SHORT KEYWORDS SAFE. "name" and "ctc" are the words
+ * forms actually use, but on their own they are also inside "Company name" and
+ * "Expected CTC" - and scoring alone does not separate those reliably, because
+ * a short keyword in a short label scores about as well either way.
+ *
+ * A miss here is not a blank field, it is the WRONG value in a real job
+ * application: the applicant's name in the employer box, or the salary they
+ * want in the box asking what they earn now. Neither is likely to be read back
+ * before submitting, so the guard is deliberately eager - a key that bows out
+ * leaves the field to a more specific key, or to the user.
+ */
+const EXCLUSIONS: Record<string, readonly string[]> = {
+  fullName: [
+    "first",
+    "last",
+    "given",
+    "family",
+    "surname",
+    "middle",
+    "maiden",
+    "preferred",
+    "nick",
+    "pronoun",
+    "company",
+    "employer",
+    "organisation",
+    "organization",
+    "school",
+    "university",
+    "college",
+    "reference",
+    "emergency",
+    "supervisor",
+    "manager",
+    "recruiter",
+    "file",
+    "user",
+    "domain",
+    "product",
+  ],
+  // "Preferred location" and "Are you willing to relocate" are asking where you
+  // would GO, not where you are.
+  currentLocation: [
+    "preferred",
+    "desired",
+    "relocat",
+    "willing",
+    "job location",
+    "office",
+    "work location",
+    "position",
+    "role location",
+  ],
+  currentSalary: ["expected", "desired", "target", "preferred", "minimum", "maximum", "range"],
+  desiredSalary: ["current", "present", "existing"],
+};
+
+function isExcluded(key: string, signature: string): boolean {
+  const terms = EXCLUSIONS[key];
+  if (!terms) return false;
+  return terms.some((term) => signature.includes(term));
+}
+
+/**
+ * autocomplete token -> fillable key.
+ *
+ * Covers composed and derived keys as well as stored ones: `name` is the
+ * standard token for a whole name, and `organization` for a current employer.
+ * Both are far stronger evidence than anything the keyword pass can offer.
+ */
 const BY_AUTOCOMPLETE = new Map<string, string>(
-  [...VAULT_FIELDS.values()]
+  [...FILLABLE_FIELDS.values()]
     .filter((field) => field.autocomplete)
     .map((field) => [field.autocomplete as string, field.key]),
 );
@@ -159,6 +256,8 @@ function scoreKeywords(signature: string): { key: string; confidence: number } |
   let best: { key: string; confidence: number } | null = null;
 
   for (const [key, keywords] of Object.entries(KEYWORDS)) {
+    if (isExcluded(key, signature)) continue;
+
     for (let i = 0; i < keywords.length; i++) {
       const keyword = keywords[i]!;
       if (!signature.includes(keyword)) continue;
@@ -197,7 +296,7 @@ export function detectFields(
   // automatic path got this form wrong, so letting autocomplete outrank them
   // would make them useless on the sites that need them most.
   for (const rule of rulesFor(map, hostname)) {
-    if (!VAULT_FIELDS.has(rule.key) || claimed.has(rule.key)) continue;
+    if (!FILLABLE_FIELDS.has(rule.key) || claimed.has(rule.key)) continue;
 
     let element: Element | null = null;
     try {
@@ -235,7 +334,7 @@ export function detectFields(
       : scoreKeywords(signatureOf(element));
 
     if (!match || match.confidence < CONFIDENCE_THRESHOLD) continue;
-    if (!VAULT_FIELDS.has(match.key)) continue;
+    if (!FILLABLE_FIELDS.has(match.key)) continue;
 
     // A form asking twice for the same thing (a confirm-email pair, say) would
     // otherwise get two fills from one key. First match wins - it is the one

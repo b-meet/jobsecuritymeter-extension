@@ -68,8 +68,13 @@ Two surfaces, because one of them cannot always work (see below):
   application form and not a listing page with a search box. After that it stays
   as a handle wherever the user parked it; the edge and height persist in
   `chrome.storage.local`, stored as a FRACTION of viewport height so the same
-  dock lands sensibly on a laptop and a tall monitor. "Not on this site" mutes
-  the origin for good.
+  dock lands sensibly on a laptop and a tall monitor.
+- **Hidden means tucked, never gone.** "Hide on this site" collapses the handle
+  to a narrow tab flush against the window edge, remembered per origin. Click it
+  or drag it off the edge and the handle is back. There is deliberately no way
+  to remove the UI outright — a control whose only outcome is "you will never
+  see this again, and there is no way back" is one people press by accident once
+  and then file a bug about.
 - **The focus chip.** A small "Fill" button inside the right edge of a field the
   user has just focused, when we recognise it and it is still empty. Fills that
   one field.
@@ -113,10 +118,42 @@ Three layers, most reliable first:
    ETag-cached. This is the difference between fixing a broken Greenhouse
    selector in a deploy and in a Chrome Web Store review.
 3. **Keyword scoring** over labels, `aria-label`, placeholder, name and id.
+4. **Exclusions**, which veto a key whose keyword matched anyway.
 
 Anything below the confidence threshold is reported as skipped, never guessed.
 Filling the wrong value into a job application is worse than leaving it blank —
 the user may not notice before submitting.
+
+Layer 4 is what makes the short keywords usable. Forms really do label a field
+just `Name` or `CTC`, but those strings also sit inside `Company name` and
+`Expected CTC`, and scoring alone does not separate them — a short keyword in a
+short label scores about the same either way. So `fullName` bows out on
+`company`, `school`, `reference`…, `currentSalary` bows out on `expected`, and
+`desiredSalary` bows out on `current`. The failure being prevented is not a
+blank box; it is the applicant's name in the employer field, or the salary they
+want in the box asking what they earn today.
+
+### Keys that were never typed
+
+`src/content/fields.ts` resolves three kinds of key, and detection cannot tell
+them apart — nor should it. It matches an input to a key and asks for a value.
+
+- **Stored** — typed into the profile editor.
+- **Derived** — computed by the API and sent flat. `currentCompany` and
+  `currentTitle` come from the role ticked "I currently work here", so the
+  extension never has to understand the shape of a `roles` list to answer
+  "current employer". Declared in `shared/vault.ts` because that is the synced
+  contract; a derived key the extension knew about but the API did not would
+  fill nothing, with no error on either side.
+- **Composed** — assembled here from stored values. `fullName` is first plus
+  last; `currentLocation` is city, state and country. These stay extension-side
+  precisely because they are only a joining of values we already hold: sending
+  them would grow the payload with data it already contains and force a contract
+  re-sync every time a form taught us a new shape.
+
+`currentLocation` deliberately excludes the street address. A form asking
+"Location" wants somewhere to place you, not somewhere to post a letter, and
+volunteering a home address to a job board is worse than an empty box.
 
 ### Fill mechanics
 

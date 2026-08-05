@@ -48,6 +48,14 @@ export const BASE_CSS = `
  * `web_accessible_resources` entry - that would let any page on the web probe
  * for the extension's presence by loading the icon URL.
  */
+/** Chevron for the tucked edge tab, pointing back into the page. */
+export const CHEVRON_SVG = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M15 5 8 12l7 7" fill="none" stroke="currentColor"
+          stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+`;
+
 export const BOLT_SVG = `
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <path d="M13 2 4.5 13.2c-.4.5 0 1.3.7 1.3H10l-1 7.5 8.5-11.2c.4-.5 0-1.3-.7-1.3H12z"

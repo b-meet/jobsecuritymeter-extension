@@ -150,3 +150,102 @@ describe("detectFields", () => {
     expect(keyFor(root, "#g")).toBe("gender");
   });
 });
+
+/**
+ * The matching that has to be right rather than merely helpful.
+ *
+ * Every case below is one where a near-miss writes a WRONG value into a real
+ * job application rather than leaving a blank - a name in the employer box, or
+ * the salary you want in the box asking what you earn now. Nobody re-reads a
+ * form they have just watched fill itself, so these are the cases the
+ * exclusion lists in detect.ts exist for.
+ */
+describe("detectFields: fields that look alike", () => {
+  it("fills a full name from a bare Name label", () => {
+    const root = form(`<label for="n">Name</label><input id="n" />`);
+    expect(keyFor(root, "#n")).toBe("fullName");
+  });
+
+  it("trusts autocomplete=name for a whole name", () => {
+    const root = form(`<input id="n" autocomplete="name" />`);
+    expect(keyFor(root, "#n")).toBe("fullName");
+  });
+
+  it("leaves First name and Last name to their own keys", () => {
+    const root = form(`
+      <label for="f">First name</label><input id="f" />
+      <label for="l">Last name</label><input id="l" />
+    `);
+    expect(keyFor(root, "#f")).toBe("firstName");
+    expect(keyFor(root, "#l")).toBe("lastName");
+  });
+
+  it("does not put the applicant's name in Company name", () => {
+    const root = form(`<label for="c">Company name</label><input id="c" />`);
+    expect(keyFor(root, "#c")).not.toBe("fullName");
+  });
+
+  it("does not answer School name or Reference name with a full name", () => {
+    const root = form(`
+      <label for="s">School name</label><input id="s" />
+      <label for="r">Reference name</label><input id="r" />
+    `);
+    expect(keyFor(root, "#s")).not.toBe("fullName");
+    expect(keyFor(root, "#r")).not.toBe("fullName");
+  });
+
+  it("separates current CTC from expected CTC", () => {
+    const root = form(`
+      <label for="a">What is your current CTC (Current Cost to Company)</label><input id="a" />
+      <label for="b">What is your expected CTC (Expected Cost to Company)</label><input id="b" />
+    `);
+    expect(keyFor(root, "#a")).toBe("currentSalary");
+    expect(keyFor(root, "#b")).toBe("desiredSalary");
+  });
+
+  it("reads a bare CTC as the salary you are on now", () => {
+    const root = form(`<label for="c">CTC</label><input id="c" />`);
+    expect(keyFor(root, "#c")).toBe("currentSalary");
+  });
+
+  it("keeps current and expected salary apart in plain English too", () => {
+    const root = form(`
+      <label for="a">Current salary</label><input id="a" />
+      <label for="b">Expected salary</label><input id="b" />
+    `);
+    expect(keyFor(root, "#a")).toBe("currentSalary");
+    expect(keyFor(root, "#b")).toBe("desiredSalary");
+  });
+
+  it("fills a bare Location with the composed location", () => {
+    const root = form(`<label for="l">Location</label><input id="l" />`);
+    expect(keyFor(root, "#l")).toBe("currentLocation");
+  });
+
+  it("leaves Current city to the city field, not the whole location", () => {
+    // "Ahmedabad, Gujarat, India" is the wrong answer to a box asking for a city.
+    const root = form(`<label for="c">Current city</label><input id="c" />`);
+    expect(keyFor(root, "#c")).toBe("city");
+  });
+
+  it("does not answer Preferred location with where you already are", () => {
+    const root = form(`<label for="p">Preferred work location</label><input id="p" />`);
+    expect(keyFor(root, "#p")).not.toBe("currentLocation");
+  });
+
+  it("still matches the derived current employer keys", () => {
+    // These come from the ticked role rather than a field of their own, so a
+    // contract re-sync that dropped them would silently stop filling here.
+    const root = form(`
+      <label for="c">Current employer</label><input id="c" />
+      <label for="t">Current title</label><input id="t" />
+    `);
+    expect(keyFor(root, "#c")).toBe("currentCompany");
+    expect(keyFor(root, "#t")).toBe("currentTitle");
+  });
+
+  it("trusts autocomplete=organization for a current employer", () => {
+    const root = form(`<input id="o" autocomplete="organization" />`);
+    expect(keyFor(root, "#o")).toBe("currentCompany");
+  });
+});
