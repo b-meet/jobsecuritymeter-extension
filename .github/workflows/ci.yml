@@ -14,6 +14,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # FIRST, and before `npm ci` deliberately. This one needs no dependencies
+      # and answers "has anything been smuggled into the source?" - a question
+      # worth settling before we execute a single install script.
+      - run: npm run guard
       - run: npm ci
       # Guards the copy of the vault contract against accidental local edits.
       - run: npm run check:contract

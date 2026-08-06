@@ -149,6 +149,30 @@ they are reported as skipped.
 
 ## Security notes
 
+### Source integrity
+
+`npm run guard` (`scripts/guard-source.mjs`) fails the build on the markers of a
+smuggled payload: a run of 100+ spaces inside a line, an obfuscated-loader
+signature, a `createRequire(import.meta.url)` shim in an ES module, or a single
+line over 3000 characters.
+
+It exists because in July 2026 exactly that was appended to `postcss.config.mjs`
+in the main repo and later to this repo's `check-contract.mjs`. Both hid the
+same way — the payload sat at the end of an existing line behind several hundred
+spaces, so the diff showed the line as unchanged and the file as `+4 −1`. It
+survived three weeks of review and ran on every build.
+
+The lesson was not "review diffs harder". That concealment is designed to defeat
+human review, and it does. Counting spaces is something a machine does perfectly
+and a person cannot do at all, so the check belongs in CI — where it runs
+**before `npm ci`**, since "has anything been smuggled in?" is worth answering
+before executing a single install script.
+
+No dependencies, by design: a guard that imports from `node_modules` can be
+switched off by the thing it is meant to catch.
+
+
+
 The refresh token lives in `chrome.storage.local`, which is readable by anyone
 with filesystem access to the browser profile. That is an accepted risk for a
 vault of contact details and is exactly why `shared/vault.ts` refuses anything
