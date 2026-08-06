@@ -27,15 +27,23 @@ describe("resolveValue", () => {
     expect(resolveValue("fullName", { firstName: "  ", lastName: "" })).toBeUndefined();
   });
 
-  it("builds a location from city upward", () => {
+  it("builds a location from city and state", () => {
     expect(
       resolveValue("currentLocation", { city: "Ahmedabad", state: "Gujarat", country: "India" }),
-    ).toBe("Ahmedabad, Gujarat, India");
+    ).toBe("Ahmedabad, Gujarat");
+  });
+
+  it("leaves the country out of a location", () => {
+    // "Ahmedabad, Gujarat" is what these boxes expect. A form that wants the
+    // country asks for it separately, and `country` answers that one.
+    expect(
+      resolveValue("currentLocation", { city: "San Francisco", state: "CA", country: "USA" }),
+    ).not.toContain("USA");
   });
 
   it("skips the parts of a location it does not have", () => {
     expect(resolveValue("currentLocation", { city: "Ahmedabad", country: "India" })).toBe(
-      "Ahmedabad, India",
+      "Ahmedabad",
     );
   });
 

@@ -249,3 +249,78 @@ describe("detectFields: fields that look alike", () => {
     expect(keyFor(root, "#o")).toBe("currentCompany");
   });
 });
+
+/**
+ * Forms that never wrote a `<label>`.
+ *
+ * A question rendered as a plain div above its input looks identical to a
+ * human and is invisible to `element.labels`. Without the nearby-text fallback
+ * these fields carry no signature at all beyond a generated `name`, so matching
+ * them is not merely unreliable - it is impossible.
+ */
+describe("detectFields: unassociated label text", () => {
+  it("reads a question rendered as a div above the field", () => {
+    const root = form(`
+      <div class="q">
+        <div class="qtext">What is your current CTC (Current Cost to Company)?</div>
+        <textarea name="answer_8321"></textarea>
+      </div>
+    `);
+    expect(keyFor(root, "textarea")).toBe("currentSalary");
+  });
+
+  it("still separates current from expected when neither has a label", () => {
+    const root = form(`
+      <div class="q"><div>What is your current CTC (Current Cost to Company)?</div>
+        <textarea name="a_1"></textarea></div>
+      <div class="q"><div>What is your expected CTC (Expected Cost to Company)?</div>
+        <textarea name="a_2"></textarea></div>
+    `);
+    expect(keyFor(root, '[name="a_1"]')).toBe("currentSalary");
+    expect(keyFor(root, '[name="a_2"]')).toBe("desiredSalary");
+  });
+
+  it("reads a label sitting beside the field in a row", () => {
+    const root = form(`<div class="row"><span>Current location</span><input name="f_9912" /></div>`);
+    expect(keyFor(root, "input")).toBe("currentLocation");
+  });
+
+  it("refuses text from a container holding more than one field", () => {
+    // THE CASE THIS GUARD EXISTS FOR. Both inputs would otherwise inherit
+    // "First name Last name" and each look equally like both - and a confident
+    // match on the wrong half writes a surname into the given-name box.
+    const root = form(`
+      <div class="pair">
+        First name Last name
+        <input name="p_1" /><input name="p_2" />
+      </div>
+    `);
+    expect(keyFor(root, '[name="p_1"]')).toBeUndefined();
+    expect(keyFor(root, '[name="p_2"]')).toBeUndefined();
+  });
+
+  it("does not let a real label be overridden by surrounding text", () => {
+    // The label is the author's own answer; nearby text is only ever a guess,
+    // so it must not get a vote when a label exists.
+    const root = form(`
+      <div class="q">
+        Tell us about your current CTC
+        <label for="e">Email</label><input id="e" />
+      </div>
+    `);
+    expect(keyFor(root, "#e")).toBe("email");
+  });
+
+  it("does not swallow a country dropdown's option list as description", () => {
+    const root = form(`
+      <div class="q">
+        <div>Current location</div>
+        <input name="loc_1" />
+      </div>
+      <div class="q">
+        <select name="c"><option>India</option><option>United States</option></select>
+      </div>
+    `);
+    expect(keyFor(root, '[name="loc_1"]')).toBe("currentLocation");
+  });
+});

@@ -52,11 +52,14 @@ const COMPOSITES: readonly CompositeField[] = [
   {
     key: "currentLocation",
     label: "Current location",
-    // Deliberately city upward, and deliberately NOT the street address. A form
-    // asking "Location" wants somewhere to place you, not somewhere to post a
-    // letter - and volunteering a home address to a job board is worse than
-    // leaving the box empty.
-    parts: ["city", "state", "country"],
+    // City and state, and deliberately NOT the street address. A form asking
+    // "Location" wants somewhere to place you, not somewhere to post a letter -
+    // volunteering a home address to a job board is worse than an empty box.
+    //
+    // Country is left off too. "Ahmedabad, Gujarat" and "San Francisco, CA" are
+    // what these boxes expect; a form that wants the country asks for it in a
+    // field of its own, which `country` already answers.
+    parts: ["city", "state"],
     separator: ", ",
   },
 ];

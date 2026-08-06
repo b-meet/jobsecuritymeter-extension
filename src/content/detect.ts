@@ -213,7 +213,7 @@ function isFillable(element: Element): element is FieldElement {
  * compared to a visible label a human wrote.
  */
 function signatureOf(element: FieldElement): string {
-  const parts: string[] = [];
+  const described: string[] = [];
 
   // `.labels` is the native association list - it covers both `for=` and
   // wrapping labels with no selector building, so there is no id to escape.
@@ -221,28 +221,105 @@ function signatureOf(element: FieldElement): string {
   // a quote or bracket produced an invalid selector that threw, and CSS.escape
   // itself is missing in some environments.
   for (const label of element.labels ?? []) {
-    if (label.textContent) parts.push(label.textContent);
+    if (label.textContent) described.push(label.textContent);
   }
 
   const wrapping = element.closest("label");
-  if (wrapping?.textContent) parts.push(wrapping.textContent);
+  if (wrapping?.textContent) described.push(wrapping.textContent);
 
   const labelledBy = element.getAttribute("aria-labelledby");
   if (labelledBy) {
     for (const id of labelledBy.split(/\s+/)) {
       const node = element.ownerDocument.getElementById(id);
-      if (node?.textContent) parts.push(node.textContent);
+      if (node?.textContent) described.push(node.textContent);
     }
   }
 
-  parts.push(
+  described.push(
     element.getAttribute("aria-label") ?? "",
     element.getAttribute("placeholder") ?? "",
-    element.getAttribute("name") ?? "",
-    element.id,
   );
 
-  return parts.join(" ").toLowerCase().replace(/\s+/g, " ").trim();
+  // Only when the author left us nothing to read. This is both the cheap path
+  // and the safe one: a form that labelled its fields properly never pays for
+  // the DOM walk, and never risks the guesswork it involves.
+  if (described.join("").trim() === "") {
+    described.push(nearbyText(element));
+  }
+
+  return [...described, element.getAttribute("name") ?? "", element.id]
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** How far up to look for text describing a field. */
+const NEARBY_MAX_DEPTH = 4;
+/** Enough for a wordy question, not enough to swallow a whole form. */
+const NEARBY_MAX_LENGTH = 240;
+
+/**
+ * Text sitting next to a field that was never associated with it.
+ *
+ * PLENTY OF REAL FORMS NEVER WRITE A `<label>`. A question rendered as a plain
+ * `<div>` above its input looks identical to a user and is invisible to
+ * `element.labels`, so without this the field has no signature at all beyond a
+ * generated name like `answer_8321` - and matching it is not close, it is
+ * impossible.
+ *
+ * THE ONE-FIELD RULE IS WHAT MAKES THIS SAFE. We climb only through containers
+ * holding exactly one fillable field. A container with two would give both the
+ * same text: "First name" and "Last name" sitting above a pair of inputs would
+ * make each field look like both, and the matcher would confidently write the
+ * wrong half of somebody's name. Stopping there costs a match; not stopping
+ * would cost correctness.
+ */
+function nearbyText(element: FieldElement): string {
+  let node = element.parentElement;
+
+  for (let depth = 0; node && depth < NEARBY_MAX_DEPTH; depth += 1) {
+    if (countFillable(node) > 1) break;
+
+    const text = textWithin(node).replace(/\s+/g, " ").trim();
+    if (text) return text.slice(0, NEARBY_MAX_LENGTH);
+
+    node = node.parentElement;
+  }
+
+  return "";
+}
+
+function countFillable(node: Element): number {
+  let count = 0;
+  for (const candidate of node.querySelectorAll("input, textarea, select")) {
+    if (isFillable(candidate)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Tags whose text describes themselves rather than the field beside them.
+ *
+ * `option` is the important one: a country `<select>` carries every country
+ * name in the world as text, which would swamp any real signal around it.
+ */
+const OPAQUE_TO_TEXT = new Set(["SELECT", "OPTION", "TEXTAREA", "BUTTON", "SCRIPT", "STYLE"]);
+
+function textWithin(node: Element): string {
+  let text = "";
+
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3 /* TEXT_NODE */) {
+      text += ` ${child.nodeValue ?? ""}`;
+      continue;
+    }
+    if (child instanceof Element && !OPAQUE_TO_TEXT.has(child.tagName)) {
+      text += ` ${textWithin(child)}`;
+    }
+  }
+
+  return text;
 }
 
 /** Human-readable name for the fill report. */

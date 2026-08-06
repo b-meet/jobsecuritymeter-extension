@@ -118,13 +118,26 @@ Three layers, most reliable first:
    ETag-cached. This is the difference between fixing a broken Greenhouse
    selector in a deploy and in a Chrome Web Store review.
 3. **Keyword scoring** over labels, `aria-label`, placeholder, name and id.
-4. **Exclusions**, which veto a key whose keyword matched anyway.
+4. **Nearby text**, when the author associated no label at all.
+5. **Exclusions**, which veto a key whose keyword matched anyway.
 
 Anything below the confidence threshold is reported as skipped, never guessed.
 Filling the wrong value into a job application is worse than leaving it blank —
 the user may not notice before submitting.
 
-Layer 4 is what makes the short keywords usable. Forms really do label a field
+Layer 4 exists because plenty of real forms never write a `<label>`. A question
+rendered as a plain `<div>` above its input looks identical to a user and is
+invisible to `element.labels`, leaving the field with no signature beyond a
+generated `name="answer_8321"` — matching it is not unreliable, it is
+impossible. So when nothing describes the field, we climb up to four ancestors
+looking for text, but **only through containers holding exactly one fillable
+field**. That rule is the whole safety story: a container with two would hand
+both the same text, so `First name` / `Last name` above a pair of inputs would
+make each look equally like both, and a confident match on the wrong one writes
+a surname into the given-name box. A properly labelled form never runs this
+walk at all.
+
+Layer 5 is what makes the short keywords usable. Forms really do label a field
 just `Name` or `CTC`, but those strings also sit inside `Company name` and
 `Expected CTC`, and scoring alone does not separate them — a short keyword in a
 short label scores about the same either way. So `fullName` bows out on
@@ -146,14 +159,21 @@ them apart — nor should it. It matches an input to a key and asks for a value.
   contract; a derived key the extension knew about but the API did not would
   fill nothing, with no error on either side.
 - **Composed** — assembled here from stored values. `fullName` is first plus
-  last; `currentLocation` is city, state and country. These stay extension-side
+  last; `currentLocation` is city plus state. These stay extension-side
   precisely because they are only a joining of values we already hold: sending
   them would grow the payload with data it already contains and force a contract
   re-sync every time a form taught us a new shape.
 
 `currentLocation` deliberately excludes the street address. A form asking
 "Location" wants somewhere to place you, not somewhere to post a letter, and
-volunteering a home address to a job board is worse than an empty box.
+volunteering a home address to a job board is worse than an empty box. The
+country is left off for the same reason it is not guesswork: `Ahmedabad,
+Gujarat` and `San Francisco, CA` are what these boxes expect, and a form that
+wants the country asks for it separately.
+
+That also means a profile with only `addressLine1` filled in fills nothing here
+— `currentLocation` reads `city` and `state`, and nothing parses a street
+address into its parts.
 
 ### Fill mechanics
 
