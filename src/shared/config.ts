@@ -74,6 +74,6 @@ export const STORAGE_KEYS = {
   fieldMapEtag: "jsm.fieldMapEtag",
   /** Where the user last parked the on-page handle. See content/ui/dock.ts. */
   dock: "jsm.dock",
-  /** Origins the user has told us to stay off. */
-  mutedOrigins: "jsm.mutedOrigins",
+  /** Origins where the handle is collapsed to an edge tab rather than shown. */
+  tuckedOrigins: "jsm.tuckedOrigins",
 } as const;

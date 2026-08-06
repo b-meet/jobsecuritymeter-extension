@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   clampOffset,
   DEFAULT_DOCK,
   frameIsBigEnough,
+  isTucked,
+  setTucked,
   OFFER_THRESHOLD,
   placementFor,
   snap,
@@ -125,5 +127,74 @@ describe("frameIsBigEnough", () => {
 describe("OFFER_THRESHOLD", () => {
   it("is above one, so a listing page's search box cannot trigger the panel", () => {
     expect(OFFER_THRESHOLD).toBeGreaterThan(1);
+  });
+});
+
+describe("tucking away", () => {
+  function stubStorage(initial: Record<string, unknown> = {}) {
+    const store: Record<string, unknown> = { ...initial };
+
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      storage: {
+        local: {
+          get: async (key: string) => ({ [key]: store[key] }),
+          set: async (values: Record<string, unknown>) => Object.assign(store, values),
+        },
+      },
+    };
+
+    return store;
+  }
+
+  afterEach(() => {
+    delete (globalThis as unknown as { chrome?: unknown }).chrome;
+  });
+
+  it("starts untucked on an origin the user has never hidden", async () => {
+    stubStorage();
+    expect(await isTucked("https://boards.greenhouse.io")).toBe(false);
+  });
+
+  it("remembers an origin that was tucked away", async () => {
+    stubStorage();
+    await setTucked("https://boards.greenhouse.io", true);
+    expect(await isTucked("https://boards.greenhouse.io")).toBe(true);
+  });
+
+  it("is per origin, not global", async () => {
+    stubStorage();
+    await setTucked("https://boards.greenhouse.io", true);
+    expect(await isTucked("https://jobs.lever.co")).toBe(false);
+  });
+
+  it("lets an origin be pulled back out", async () => {
+    // The whole point of tucking rather than muting: there is a way back.
+    stubStorage();
+    await setTucked("https://jobs.lever.co", true);
+    await setTucked("https://jobs.lever.co", false);
+    expect(await isTucked("https://jobs.lever.co")).toBe(false);
+  });
+
+  it("does not accumulate duplicates when tucked twice", async () => {
+    const store = stubStorage();
+    await setTucked("https://jobs.lever.co", true);
+    await setTucked("https://jobs.lever.co", true);
+    expect(store["jsm.tuckedOrigins"]).toEqual(["https://jobs.lever.co"]);
+  });
+
+  it("stays hidden when storage cannot be read", async () => {
+    // Being wrong this way shows a quiet edge tab to someone who wanted one.
+    // Being wrong the other way pops a card back onto a form they had cleared.
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      storage: {
+        local: {
+          get: async () => {
+            throw new Error("storage unavailable");
+          },
+        },
+      },
+    };
+
+    expect(await isTucked("https://boards.greenhouse.io")).toBe(true);
   });
 });

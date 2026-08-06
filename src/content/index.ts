@@ -1,8 +1,9 @@
 import { detectFields, type FieldMap, type FieldMatch } from "./detect";
 import { fillField } from "./fill";
-import { VAULT_FIELDS, type VaultData } from "@/shared/vault";
+import { type VaultData } from "@/shared/vault";
+import { FILLABLE_FIELDS, resolveValue } from "./fields";
 import type { ContentMessage, FillReport, Request, Response, SitePage } from "@/shared/messages";
-import { frameIsBigEnough, isMuted, mute, OFFER_THRESHOLD } from "./ui/dock";
+import { frameIsBigEnough, isTucked, setTucked, OFFER_THRESHOLD } from "./ui/dock";
 import { mountPanel, type Panel } from "./ui/panel";
 import { throttled } from "./ui/raf";
 import { mountChip, type Chip } from "./ui/chip";
@@ -54,7 +55,10 @@ function runFill(data: VaultData, found: readonly FieldMatch[]): FillReport {
   const report: FillReport = { filled: [], skipped: [] };
 
   for (const match of found) {
-    const value = data[match.key];
+    // Goes through the resolver rather than reading `data` directly, so a
+    // composed key like `fullName` - which has no slot of its own - is built
+    // from the parts the user did save.
+    const value = resolveValue(match.key, data);
 
     if (value === undefined || value === "") {
       // Nothing saved for this field - not worth reporting as a failure, the
@@ -72,7 +76,7 @@ function runFill(data: VaultData, found: readonly FieldMatch[]): FillReport {
 
     const outcome = fillField(match.element, value);
     if (outcome.ok) {
-      report.filled.push({ key: match.key, label: VAULT_FIELDS.get(match.key)?.label ?? match.key });
+      report.filled.push({ key: match.key, label: FILLABLE_FIELDS.get(match.key)?.label ?? match.key });
     } else {
       report.skipped.push({ label: match.label, reason: outcome.reason });
     }
@@ -88,7 +92,7 @@ let matches: FieldMatch[] = [];
 let panel: Panel | null = null;
 let chip: Chip | null = null;
 let connected = false;
-let muted = false;
+let tucked = false;
 
 function redetect(): void {
   matches = detectFields(document, fieldMap);
@@ -134,7 +138,7 @@ async function fillOneField(
     return;
   }
 
-  const value = values.data[key];
+  const value = resolveValue(key, values.data);
   if (value === undefined || value === "") {
     // Honest rather than silent: the field was recognised, there is just
     // nothing in the profile to put in it yet.
@@ -147,26 +151,40 @@ async function fillOneField(
 }
 
 function ensurePanel(): void {
-  if (panel || muted) return;
+  if (panel) return;
 
   panel = mountPanel({
     onFill: () => void fillWholeForm(),
     onConnect: () => openPage("connect"),
     onEditProfile: () => openPage("account"),
-    onMute: () => {
-      muted = true;
-      void mute(location.origin);
-      panel?.destroy();
-      panel = null;
-      chip?.destroy();
-      chip = null;
+    onTuckedChange: (next) => {
+      tucked = next;
+      void setTucked(location.origin, next);
+
+      if (next) {
+        chip?.destroy();
+        chip = null;
+      } else if (matches.length > 0) {
+        ensureChip();
+      }
     },
     anchor,
   });
+
+  // Mounted already collapsed when this origin was tucked away on a previous
+  // visit. The panel is never destroyed for it - being retrievable is the whole
+  // point, and a destroyed panel has no edge tab to pull back out.
+  if (tucked) panel.setTucked(true);
 }
 
+/**
+ * The chip follows the handle: hidden on an origin the user tucked away.
+ *
+ * Leaving in-field prompts on a page where the handle was hidden would ignore
+ * the instruction in the more intrusive of the two places.
+ */
 function ensureChip(): void {
-  if (chip || muted) return;
+  if (chip || tucked) return;
   chip = mountChip((element, key) => void fillOneField(element, key));
   chip.setMatches(matches);
 }
@@ -178,8 +196,6 @@ function ensureChip(): void {
  * application form gets the panel on arrival without a reload.
  */
 function reconcile(): void {
-  if (muted) return;
-
   // Keep whatever is already mounted rather than flickering it away during a
   // transient re-render that momentarily empties the form.
   if (matches.length === 0) return;
@@ -229,8 +245,9 @@ async function start(): Promise<void> {
   // often enough to matter, and `all_frames` puts us inside every one of them.
   if (!frameIsBigEnough()) return;
 
-  muted = await isMuted(location.origin);
-  if (muted) return;
+  // Not an early return. A tucked origin still mounts - collapsed to its edge
+  // tab, because a panel that never mounts leaves nothing to pull back out.
+  tucked = await isTucked(location.origin);
 
   const [map, isConnected] = await Promise.all([
     ask<FieldMap | null>({ type: "GET_FIELD_MAP" }),

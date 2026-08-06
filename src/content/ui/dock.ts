@@ -143,34 +143,44 @@ export async function saveDock(dock: DockPosition): Promise<void> {
   }
 }
 
-async function readMuted(): Promise<string[]> {
-  const stored = await chrome.storage.local.get(STORAGE_KEYS.mutedOrigins);
-  const value = stored[STORAGE_KEYS.mutedOrigins];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+async function readTucked(): Promise<string[]> {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.tuckedOrigins);
+  const value = stored[STORAGE_KEYS.tuckedOrigins];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 /**
- * Has the user told us to stay off this origin?
+ * Has the user tucked the handle away on this origin?
  *
- * A read that throws is treated as MUTED, not as unmuted. Getting this backwards
- * would mean a transient storage error resurrects an overlay somebody explicitly
- * turned off, on a page where they had already said no. Staying hidden when we
- * are unsure costs one trip to the toolbar popup, which still fills the page.
+ * NOT THE SAME AS TURNING IT OFF, and that distinction is the whole point. An
+ * earlier version treated "not on this site" as permanent, which left people
+ * with no way back short of clearing extension storage - the feature was simply
+ * gone and looked broken. Tucked means collapsed to a small tab against the
+ * window edge: out of the way of the form, still one click from returning.
+ *
+ * A read that throws resolves to TUCKED rather than open. Being wrong in that
+ * direction shows a quiet edge tab on a page where the user wanted one; being
+ * wrong the other way pops a card back onto a form they had already cleared.
  */
-export async function isMuted(origin: string): Promise<boolean> {
+export async function isTucked(origin: string): Promise<boolean> {
   try {
-    return (await readMuted()).includes(origin);
+    return (await readTucked()).includes(origin);
   } catch {
     return true;
   }
 }
 
-export async function mute(origin: string): Promise<void> {
+export async function setTucked(origin: string, tucked: boolean): Promise<void> {
   try {
-    const muted = await readMuted();
-    if (muted.includes(origin)) return;
-    await chrome.storage.local.set({ [STORAGE_KEYS.mutedOrigins]: [...muted, origin] });
+    const current = await readTucked();
+    if (current.includes(origin) === tucked) return;
+
+    const next = tucked ? [...current, origin] : current.filter((entry) => entry !== origin);
+    await chrome.storage.local.set({ [STORAGE_KEYS.tuckedOrigins]: next });
   } catch {
-    // Nothing useful to do; the popup's "Fill this page" still works.
+    // The in-memory state still holds for this page; only the memory of it
+    // across reloads is lost, which is not worth interrupting anyone over.
   }
 }
