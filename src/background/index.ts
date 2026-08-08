@@ -68,8 +68,15 @@ async function handle(request: Request): Promise<Response<unknown>> {
         return { ok: true, data: null };
 
       case "GET_SITE_ACCESS": {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        const pattern = tab?.url ? patternFor(tab.url) : null;
+        // The content script knows its own URL; the popup has to look up the
+        // active tab. Asking the caller avoids a tabs.query that would be wrong
+        // for a frame that is not the active tab's top document.
+        let url = request.url;
+        if (!url) {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          url = tab?.url;
+        }
+        const pattern = url ? patternFor(url) : null;
 
         if (!pattern) return { ok: true, data: { pattern: null, host: null, granted: false } };
 
@@ -78,13 +85,30 @@ async function handle(request: Request): Promise<Response<unknown>> {
           manifestMatches.includes(pattern) ||
           (await chrome.permissions.contains({ origins: [pattern] }).catch(() => false));
 
-        const host = new URL(tab!.url!).hostname;
+        const host = new URL(url!).hostname;
         return { ok: true, data: { pattern, host, granted } satisfies SiteAccess };
       }
 
       case "REGISTER_SITE":
         await registerSite(request.pattern);
         return { ok: true, data: null };
+
+      /**
+       * Hand off from the on-page handle to the popup.
+       *
+       * `chrome.action.openPopup()` needs a recent user gesture, and one made
+       * in a content script does not always carry across the message boundary.
+       * A failure is not an error worth shouting about - the handle falls back
+       * to telling the user to click the toolbar icon, which is the same two
+       * clicks by a different route.
+       */
+      case "OPEN_POPUP":
+        try {
+          await chrome.action.openPopup();
+          return { ok: true, data: null };
+        } catch {
+          return { ok: false, error: "Open Job Autofill from the toolbar to allow this site." };
+        }
 
       case "FILL_ACTIVE_TAB": {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

@@ -34,6 +34,11 @@ export type PanelHandlers = {
   onFill: () => void;
   onConnect: () => void;
   onEditProfile: () => void;
+  /**
+   * Ask to run on this site permanently. Absent when the site is already
+   * covered, which is the common case and needs no clutter on the card.
+   */
+  onAllowSite?: () => void;
   /** Told when the handle is tucked away or pulled back, so it can be remembered. */
   onTuckedChange: (tucked: boolean) => void;
   /**
@@ -161,6 +166,21 @@ const CSS = `
   .link:hover { color: ${COLORS.ink}; text-decoration: underline; }
   .link:focus-visible { outline: 2px solid ${COLORS.amber}; outline-offset: 2px; }
   .spacer { flex: 1; }
+
+  /* The "only for this visit" strip. Quiet, but not so quiet it reads as
+     decoration - it is the only place the fix is offered. */
+  .note {
+    margin-top: 10px; padding-top: 9px;
+    border-top: 1px solid ${COLORS.line};
+  }
+  .note-text { font-size: 11px; color: ${COLORS.muted}; }
+  .note-cta {
+    display: block; width: 100%; margin-top: 7px;
+    padding: 7px 10px; border-radius: 9px;
+    background: ${COLORS.amber}; color: ${COLORS.greenDeep};
+    font-size: 12px; font-weight: 700; text-align: center;
+  }
+  .note-cta:focus-visible { outline: 3px solid ${COLORS.green}; outline-offset: 2px; }
 `;
 
 export function mountPanel(handlers: PanelHandlers): Panel {
@@ -332,6 +352,7 @@ export function mountPanel(handlers: PanelHandlers): Panel {
       );
       nodes.push(button("primary", "Done", close));
       nodes.push(footer());
+      if (handlers.onAllowSite) nodes.push(temporaryNote());
       return nodes;
     }
 
@@ -342,6 +363,7 @@ export function mountPanel(handlers: PanelHandlers): Panel {
         button("primary", "Connect account", handlers.onConnect),
         footer(),
       );
+      if (handlers.onAllowSite) nodes.push(temporaryNote());
       return nodes;
     }
 
@@ -351,6 +373,7 @@ export function mountPanel(handlers: PanelHandlers): Panel {
       button("primary", `Fill ${plural(state.count, "field")}`, handlers.onFill),
       footer(),
     );
+    if (handlers.onAllowSite) nodes.push(temporaryNote());
     return nodes;
   }
 
@@ -371,6 +394,22 @@ export function mountPanel(handlers: PanelHandlers): Panel {
       button("link", "Edit profile", handlers.onEditProfile),
     );
     return foot;
+  }
+
+  /**
+   * Shown only while we are here on a one-off `activeTab` injection.
+   *
+   * Without it the handle appears after a manual fill, vanishes on reload, and
+   * the user has no idea why or what to do about it. The offer belongs here
+   * rather than buried in the popup, because here is where they noticed.
+   */
+  function temporaryNote(): HTMLElement {
+    const note = el("div", "note");
+    note.append(
+      el("p", "note-text", "Running here just for this visit."),
+      button("note-cta", "Always run on this site", () => handlers.onAllowSite?.()),
+    );
+    return note;
   }
 
   function plural(count: number, noun: string): string {

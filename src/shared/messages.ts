@@ -19,14 +19,22 @@ export type Request =
   | { type: "FILL_ACTIVE_TAB" }
   | { type: "OPEN_PAGE"; page: SitePage }
   /** Where the popup is pointed, so it can offer to run here permanently. */
-  | { type: "GET_SITE_ACCESS" }
+  | { type: "GET_SITE_ACCESS"; url?: string }
   /**
    * Register the content script for an origin the user just granted.
    *
    * The `chrome.permissions.request()` call itself has to happen in the popup:
    * it needs a user gesture, and a service worker has none.
    */
-  | { type: "REGISTER_SITE"; pattern: string };
+  | { type: "REGISTER_SITE"; pattern: string }
+  /**
+   * Open the toolbar popup from the on-page handle.
+   *
+   * The handle cannot ask for a permission itself - `chrome.permissions.request`
+   * is not exposed to content scripts, and the popup is the only surface with a
+   * user gesture Chrome will accept. So the handle hands off to it.
+   */
+  | { type: "OPEN_POPUP" };
 
 export type SiteAccess = {
   /** Match pattern for the active tab, or null if it is not an http(s) page. */

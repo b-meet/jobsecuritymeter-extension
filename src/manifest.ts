@@ -13,6 +13,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
  * why `all_frames` is on below.
  */
 const ATS_MATCHES = [
+  // The hosted boards we started with.
   "https://boards.greenhouse.io/*",
   "https://job-boards.greenhouse.io/*",
   "https://*.greenhouse.io/*",
@@ -21,6 +22,45 @@ const ATS_MATCHES = [
   "https://*.ashbyhq.com/*",
   "https://jobs.smartrecruiters.com/*",
   "https://*.myworkdayjobs.com/*",
+
+  /**
+   * The rest of the market.
+   *
+   * The original list covered the ATSs a US-centric startup sees and nothing
+   * else, so a Keka or Zoho form - which is most of the Indian market - fell
+   * through to "doesn't run on this page yet". Every entry below is an applicant
+   * tracking system that hosts the application form itself on a per-company
+   * subdomain, which is why the wildcards are safe: `*.keka.com` reaches
+   * careers pages, not somebody's bank.
+   *
+   * This is still an allowlist, not `<all_urls>`. It grows by adding a name we
+   * recognise, and anything genuinely unknown is covered by `activeTab` and the
+   * per-site grant instead.
+   */
+  "https://*.keka.com/*",
+  "https://*.darwinbox.com/*",
+  "https://*.darwinbox.in/*",
+  "https://*.zohorecruit.com/*",
+  "https://*.zohorecruit.in/*",
+  "https://*.freshteam.com/*",
+  "https://*.workable.com/*",
+  "https://*.bamboohr.com/*",
+  "https://*.icims.com/*",
+  "https://*.taleo.net/*",
+  "https://*.successfactors.com/*",
+  "https://*.successfactors.eu/*",
+  "https://*.jobvite.com/*",
+  "https://*.recruitee.com/*",
+  "https://*.personio.de/*",
+  "https://*.personio.com/*",
+  "https://*.teamtailor.com/*",
+  "https://*.breezy.hr/*",
+  "https://*.applytojob.com/*",
+  "https://*.pinpointhq.com/*",
+  "https://*.avature.net/*",
+  "https://*.eightfold.ai/*",
+  "https://*.phenompeople.com/*",
+  "https://*.join.com/*",
 ];
 
 const SITE = process.env.VITE_SITE_ORIGIN ?? "https://jobsecuritymeter.com";

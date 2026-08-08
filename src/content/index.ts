@@ -2,7 +2,14 @@ import { detectFields, type FieldMap, type FieldMatch } from "./detect";
 import { fillField } from "./fill";
 import { type VaultData } from "@/shared/vault";
 import { FILLABLE_FIELDS, resolveValue } from "./fields";
-import type { ContentMessage, FillReport, Request, Response, SitePage } from "@/shared/messages";
+import type {
+  ContentMessage,
+  FillReport,
+  Request,
+  Response,
+  SiteAccess,
+  SitePage,
+} from "@/shared/messages";
 import { frameIsBigEnough, isTucked, setTucked, OFFER_THRESHOLD } from "./ui/dock";
 import { mountPanel, type Panel } from "./ui/panel";
 import { throttled } from "./ui/raf";
@@ -94,6 +101,15 @@ let chip: Chip | null = null;
 let connected = false;
 let tucked = false;
 
+/**
+ * True when this frame only has a script because the popup injected one.
+ *
+ * A statically-matched site keeps the handle on every visit; an injected one
+ * loses it on reload. The card says which, and offers the fix, because a handle
+ * that silently stops appearing tomorrow is worse than one that never did.
+ */
+let temporary = false;
+
 function redetect(): void {
   matches = detectFields(document, fieldMap);
   chip?.setMatches(matches);
@@ -150,6 +166,21 @@ async function fillOneField(
   if (!outcome.ok) chip?.flash("Couldn't fill");
 }
 
+/**
+ * Hand the permission ask over to the popup.
+ *
+ * `chrome.permissions.request` is not exposed to content scripts at all, so the
+ * handle cannot do this itself however it is dressed up. Opening the popup is
+ * the closest we get, and when Chrome declines to open it - the gesture does
+ * not always survive the message hop - we say plainly what to click instead.
+ */
+async function requestSiteAccess(): Promise<void> {
+  const result = await ask({ type: "OPEN_POPUP" });
+  if (!result.ok) {
+    panel?.setState({ kind: "error", message: result.error });
+  }
+}
+
 function ensurePanel(): void {
   if (panel) return;
 
@@ -168,6 +199,9 @@ function ensurePanel(): void {
         ensureChip();
       }
     },
+    // Only offered when we are here on a one-off injection. The handler is
+    // absent otherwise, which is what keeps the note off the card entirely.
+    onAllowSite: temporary ? () => void requestSiteAccess() : undefined,
     anchor,
   });
 
@@ -251,15 +285,23 @@ async function start(): Promise<void> {
   // tab, because a panel that never mounts leaves nothing to pull back out.
   tucked = await isTucked(location.origin);
 
-  const [map, isConnected] = await Promise.all([
+  const [map, isConnected, access] = await Promise.all([
     ask<FieldMap | null>({ type: "GET_FIELD_MAP" }),
     ask<boolean>({ type: "GET_CONNECTED" }),
+    // Only the top frame asks. A grant is per origin, and offering to "always
+    // run on" the origin of an embedded board would grant the wrong thing.
+    window.top === window.self
+      ? ask<SiteAccess>({ type: "GET_SITE_ACCESS", url: location.href })
+      : Promise.resolve({ ok: false as const, error: "iframe" }),
   ]);
 
   // Neither failure is fatal: detection falls back to its bundled heuristics,
   // and an unknown connection state just means the panel offers to connect.
   fieldMap = map.ok ? map.data : null;
   connected = isConnected.ok ? isConnected.data : false;
+  // Unknown resolves to permanent, so a failed lookup shows no note rather
+  // than nagging about a site that is in fact covered.
+  temporary = access.ok ? !access.data.granted : false;
 
   redetect();
   reconcile();
