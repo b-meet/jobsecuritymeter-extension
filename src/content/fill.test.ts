@@ -121,3 +121,48 @@ describe("fillField", () => {
     });
   });
 });
+
+describe("fillField against a framework that fights back", () => {
+  it("re-asserts a value a controlled component reverted", () => {
+    // The documented failure this file exists for: React re-renders from stale
+    // state after our setter runs, leaving the box empty while every event we
+    // dispatched says otherwise.
+    document.body.innerHTML = `<input id="a" />`;
+    const input = document.getElementById("a") as HTMLInputElement;
+
+    let reverts = 1;
+    input.addEventListener("input", () => {
+      if (reverts-- > 0) {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+        descriptor?.set?.call(input, "");
+      }
+    });
+
+    expect(fillField(input, "Upraqx Solutions").ok).toBe(true);
+    expect(input.value).toBe("Upraqx Solutions");
+  });
+
+  it("dispatches events that cross a shadow boundary", () => {
+    // An ATS built from web components sees nothing from a non-composed event.
+    document.body.innerHTML = `<div id="host"></div>`;
+    const shadow = (document.getElementById("host") as HTMLElement).attachShadow({ mode: "open" });
+    const input = document.createElement("input");
+    shadow.append(input);
+
+    const seen: string[] = [];
+    document.addEventListener("input", () => seen.push("input"));
+    document.addEventListener("change", () => seen.push("change"));
+
+    fillField(input, "Meet");
+
+    expect(seen).toContain("input");
+    expect(seen).toContain("change");
+  });
+
+  it("still reports a plain fill as filled", () => {
+    document.body.innerHTML = `<input id="b" />`;
+    const input = document.getElementById("b") as HTMLInputElement;
+    expect(fillField(input, "hello").ok).toBe(true);
+    expect(input.value).toBe("hello");
+  });
+});

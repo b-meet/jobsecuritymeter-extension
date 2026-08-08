@@ -28,22 +28,53 @@ function nativeSetter(element: FieldElement): ((value: string) => void) | null {
   return (value: string) => setter.call(element, value);
 }
 
+/**
+ * The event sequence a real keystroke produces, as closely as we can manage.
+ *
+ * `input` drives React's onChange; `change` drives Vue, Angular and plain
+ * listeners. Everything bubbles because frameworks delegate from the form root,
+ * and everything is `composed` so it crosses a shadow boundary - an ATS built
+ * from web components would otherwise see nothing at all.
+ *
+ * `beforeinput` and the key events are here for the input libraries that gate on
+ * them: several masked and autocomplete widgets ignore a bare `input` because a
+ * human could not have produced one on its own.
+ */
 function notify(element: FieldElement): void {
-  // `input` drives React's onChange; `change` drives Vue, Angular and plain
-  // listeners. Both must bubble - frameworks delegate from the form root.
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-  element.dispatchEvent(new Event("change", { bubbles: true }));
+  const key = { bubbles: true, composed: true } as const;
+
+  element.dispatchEvent(new KeyboardEvent("keydown", key));
+  element.dispatchEvent(new InputEvent("beforeinput", { ...key, inputType: "insertText" }));
+  element.dispatchEvent(new InputEvent("input", { ...key, inputType: "insertText" }));
+  element.dispatchEvent(new KeyboardEvent("keyup", key));
+  element.dispatchEvent(new Event("change", key));
 }
 
 function setText(element: FieldElement, value: string): boolean {
   const set = nativeSetter(element);
   if (!set) return false;
 
-  // Focus first: some forms only run validation on a field that was focused,
-  // and blur afterwards so any "required" styling settles.
+  // Focus first: some forms only run validation on a field that was focused.
   element.focus();
   set(value);
   notify(element);
+
+  /**
+   * Re-assert if the framework put its own value back.
+   *
+   * This is the failure this whole file exists for, and dispatching events is
+   * not always enough on its own: a controlled component can re-render from
+   * stale state between the setter and the end of this function, leaving the
+   * box empty while every event we sent says otherwise. Setting it again after
+   * that render, without re-dispatching, is usually what sticks.
+   */
+  if ("value" in element && element.value !== value) {
+    set(value);
+    element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  }
+
+  // Blur last, so anything that commits or formats on blur gets its turn and
+  // "required" styling settles.
   element.blur();
 
   return true;

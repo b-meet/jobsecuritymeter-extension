@@ -1,6 +1,6 @@
 import { API, isTrustedOrigin, SITE_ORIGIN } from "@/shared/config";
 import { adoptSession, clearSession, currentEmail } from "./auth";
-import { AuthError, fetchFieldMap, fetchVault } from "./api";
+import { AuthError, fetchFieldMap, fetchVault, forgetVault } from "./api";
 import { injectNow, patternFor, registerSite, syncGrantedSites } from "./inject";
 import type {
   ContentMessage,
@@ -24,7 +24,7 @@ async function status(): Promise<Status> {
   if (!email) return { connected: false, email: null, completion: null };
 
   try {
-    const vault = await fetchVault();
+    const vault = await fetchVault({ fresh: true });
     return { connected: true, email, completion: vault.completion };
   } catch (error) {
     if (error instanceof AuthError) return { connected: false, email: null, completion: null };
@@ -52,6 +52,9 @@ async function handle(request: Request): Promise<Response<unknown>> {
         return { ok: true, data: (await currentEmail()) !== null };
 
       case "OPEN_PAGE": {
+        // They are on their way to edit the profile or reconnect, so anything
+        // held now is about to be wrong.
+        forgetVault();
         const url = request.page === "account" ? `${SITE_ORIGIN}/account#autofill` : API.connect;
         await chrome.tabs.create({ url });
         return { ok: true, data: null };
@@ -65,6 +68,7 @@ async function handle(request: Request): Promise<Response<unknown>> {
 
       case "SIGN_OUT":
         await clearSession();
+        forgetVault();
         return { ok: true, data: null };
 
       case "GET_SITE_ACCESS": {

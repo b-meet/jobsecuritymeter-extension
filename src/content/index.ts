@@ -39,12 +39,15 @@ function ask<T>(request: Request): Promise<Response<T>> {
 /**
  * Fetch the values for one fill.
  *
- * DELIBERATELY NOT CACHED. The rule in shared/messages is that the content
- * script asks for values only when a fill is actually happening; holding the
- * vault in a page-side closure for the lifetime of the tab would quietly turn
- * this script into a second copy of the user's profile, living in the same
- * process as whatever the page is running. A round-trip per click is cheap by
- * comparison, and the worker is the only thing holding a token either way.
+ * NOT CACHED ON THIS SIDE, and that is the whole point. The rule in
+ * shared/messages is that the content script asks for values only when a fill
+ * is actually happening; holding the vault in a page-side closure for the
+ * lifetime of the tab would quietly turn this script into a second copy of the
+ * user's profile, in the same process as whatever the page is running.
+ *
+ * The worker caches for a minute instead (see background/api.ts), so this is a
+ * message hop rather than a network round-trip. It has to be: a fill that takes
+ * half a second to appear reads as a button that did not work.
  */
 async function vaultValues(): Promise<{ data: VaultData } | { error: string }> {
   const result = await ask<{ data: VaultData }>({ type: "GET_VAULT" });
@@ -115,6 +118,31 @@ function redetect(): void {
   chip?.setMatches(matches);
 }
 
+/**
+ * Why a given form did or did not fill, on the console.
+ *
+ * `console.debug` is hidden unless devtools is open with verbose logging on, so
+ * this costs a normal user nothing. It exists because "it just didn't fill" is
+ * almost impossible to act on from a bug report: the answer is always either
+ * "we never matched that field" or "we matched it and had nothing saved", and
+ * those need completely different fixes.
+ */
+function explain(data: VaultData | null): void {
+  const rows = matches.map((match) => ({
+    label: match.label,
+    key: match.key,
+    confidence: Number(match.confidence.toFixed(2)),
+    value: data ? (resolveValue(match.key, data) === undefined ? "(nothing saved)" : "ok") : "?",
+  }));
+
+  const unmatched = [...document.querySelectorAll("input, textarea, select")]
+    .filter((element) => !matches.some((match) => match.element === element))
+    .map((element) => element.getAttribute("name") || element.id || element.tagName.toLowerCase());
+
+  console.debug("[Job Autofill] matched %d field(s)", rows.length, rows);
+  console.debug("[Job Autofill] not matched:", unmatched);
+}
+
 /** The form the panel pins itself to when it cannot pin to the viewport. */
 function anchor(): Element | null {
   const first = matches[0]?.element;
@@ -136,6 +164,8 @@ async function fillWholeForm(): Promise<void> {
   // succeeds silently while the user sees nothing happen.
   redetect();
 
+  explain(values.data);
+
   const report = runFill(values.data, matches);
   panel?.setState({
     kind: "report",
@@ -156,6 +186,7 @@ async function fillOneField(
 
   const value = resolveValue(key, values.data);
   if (value === undefined || value === "") {
+    explain(values.data);
     // Honest rather than silent: the field was recognised, there is just
     // nothing in the profile to put in it yet.
     chip?.flash("Nothing saved");
