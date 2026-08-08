@@ -59,6 +59,26 @@ export default defineManifest((env) => {
     host_permissions: [...siteMatches, ...ATS_MATCHES],
 
     /**
+     * Sites the user can add themselves, one origin at a time.
+     *
+     * Most applications are NOT on the curated list above: companies run their
+     * own careers pages, and the long tail of smaller ATSs is not something we
+     * will ever finish enumerating. Without this the honest answer on those
+     * pages was "doesn't run here yet", which is a dead end.
+     *
+     * OPTIONAL, not granted at install. Nothing here appears on the store
+     * listing's permission warning, nothing is held until somebody asks for it,
+     * and every grant is revocable from chrome://extensions. That is the whole
+     * difference between this and shipping `<all_urls>` - which would put the
+     * submission into a much deeper review and ask every user to trust us with
+     * their banking tabs to fill in a job application.
+     *
+     * The popup's one-off "Fill this page" needs none of this; it rides
+     * `activeTab`. This is only for "run here automatically from now on".
+     */
+    optional_host_permissions: ["https://*/*", "http://*/*"],
+
+    /**
      * The sign-in handshake. jobsecuritymeter.com/extension/connect is already
      * cookie-authenticated, so it can hand us a Supabase session directly via
      * chrome.runtime.sendMessage - no second OAuth client, no password ever

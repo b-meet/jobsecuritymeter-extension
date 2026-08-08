@@ -213,30 +213,32 @@ function reconcile(): void {
 
 /* ------------------------------------------------------- popup-driven fills */
 
-chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
-  if (message?.type !== "FILL_NOW") return false;
+function listenForFills(): void {
+  chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
+    if (message?.type !== "FILL_NOW") return false;
 
-  redetect();
-  const report = runFill(message.data, matches);
+    redetect();
+    const report = runFill(message.data, matches);
 
-  // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab, so
-  // a career page with an embedded board runs this in both the wrapper and the
-  // board. Only a frame that had something to fill should say anything -
-  // otherwise an unrelated frame stacks a "nothing matched" card on top of the
-  // successful fill the user was actually watching.
-  if (matches.length > 0) {
-    ensurePanel();
-    panel?.setState({
-      kind: "report",
-      filled: report.filled.length,
-      skipped: report.skipped.length,
-    });
-    panel?.openOnce();
-  }
+    // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab,
+    // so a career page with an embedded board runs this in both the wrapper and
+    // the board. Only a frame that had something to fill should say anything -
+    // otherwise an unrelated frame stacks a "nothing matched" card on top of
+    // the successful fill the user was actually watching.
+    if (matches.length > 0) {
+      ensurePanel();
+      panel?.setState({
+        kind: "report",
+        filled: report.filled.length,
+        skipped: report.skipped.length,
+      });
+      panel?.openOnce();
+    }
 
-  sendResponse(report);
-  return false;
-});
+    sendResponse(report);
+    return false;
+  });
+}
 
 /* ---------------------------------------------------------------- bootstrap */
 
@@ -278,4 +280,24 @@ async function start(): Promise<void> {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-void start();
+/**
+ * Marker proving this frame already has a copy running.
+ *
+ * `chrome.scripting.executeScript` does not check whether the script is already
+ * there, and the popup's "Fill this page" injects unconditionally when its
+ * first message finds no listener. On a page we DO cover statically - or on a
+ * second press - that would mount a second handle, register a second message
+ * listener, and report every fill twice.
+ *
+ * Set on `window`, which is per-frame, so each frame of a page decides for
+ * itself. Content scripts run in an isolated world, so the page cannot see or
+ * forge this.
+ */
+const LOADED = "__jsmAutofillLoaded";
+type Marked = typeof globalThis & { [LOADED]?: true };
+
+if (!(globalThis as Marked)[LOADED]) {
+  (globalThis as Marked)[LOADED] = true;
+  listenForFills();
+  void start();
+}
