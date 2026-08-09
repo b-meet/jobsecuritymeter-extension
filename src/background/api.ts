@@ -36,23 +36,68 @@ async function authed(url: string, init: RequestInit = {}): Promise<globalThis.R
 
   if (response.status === 401) {
     // The token verified locally but the server rejected it - the account is
-    // gone, or the session was revoked. Same handling as a dead refresh token.
+    // gone, or the session was revoked. Same handling as a dead refresh token,
+    // and the cached values go with it: they belong to a session that is over.
     await clearSession();
+    forgetVault();
     throw new AuthError();
   }
 
   return response;
 }
 
-export async function fetchVault(): Promise<Vault & { completion: { filled: number; total: number } }> {
+type VaultResponse = Vault & { completion: { filled: number; total: number } };
+
+/**
+ * Short-lived vault cache, held ONLY in the worker.
+ *
+ * WHY THIS EXISTS. The on-page "Fill" chip fetched the vault on every press,
+ * because the content script deliberately caches nothing (see shared/messages).
+ * That put a full network round-trip between the click and the value appearing -
+ * a few hundred milliseconds of nothing, which reads as "the button did not
+ * work", and the fill then landing just as the user clicks away looks like it
+ * was the blur that did it.
+ *
+ * Caching HERE rather than in the content script is what keeps the rule intact.
+ * The worker already holds the access token; values sitting beside it for a
+ * minute are not a new exposure. The same values in the content script would be
+ * in the same process as whatever the page is running, which is the thing the
+ * rule is about.
+ *
+ * MV3 tears the worker down when idle, so this is doubly bounded: by the TTL,
+ * and by the worker's own lifetime.
+ */
+let cached: { at: number; value: VaultResponse } | null = null;
+const VAULT_TTL_MS = 60_000;
+
+export async function fetchVault(options?: { fresh?: boolean }): Promise<VaultResponse> {
+  if (!options?.fresh && cached && Date.now() - cached.at < VAULT_TTL_MS) {
+    return cached.value;
+  }
+
   const response = await authed(API.vault);
   if (!response.ok) throw new Error(`Vault request failed (${response.status})`);
-  return response.json();
+
+  const value = (await response.json()) as VaultResponse;
+  cached = { at: Date.now(), value };
+  return value;
+}
+
+/**
+ * Drop the cache.
+ *
+ * Called on sign-out and whenever the profile is edited, so a stale copy cannot
+ * outlive the session it belongs to or fill a value the user just changed.
+ */
+export function forgetVault(): void {
+  cached = null;
 }
 
 export async function saveVault(data: VaultData): Promise<void> {
   const response = await authed(API.vault, { method: "PATCH", body: JSON.stringify({ data }) });
   if (!response.ok) throw new Error(`Vault save failed (${response.status})`);
+  // Whatever we hold is now behind the write.
+  forgetVault();
 }
 
 /**

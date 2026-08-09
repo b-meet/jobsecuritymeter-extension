@@ -88,6 +88,57 @@ Neither surface ever fills anything on its own. Every path ends at a button the
 user presses, for the same reason detection refuses to guess: a wrong value the
 user does not notice before submitting is worse than a blank.
 
+### Pages the manifest never listed
+
+The allowlist itself was the first problem. It originally held the ATSs a
+US-centric startup sees — Greenhouse, Lever, Ashby, SmartRecruiters, Workday —
+so a Keka or Zoho form, which is most of the Indian market, fell straight
+through to "doesn't run on this page yet". It now covers the major platforms
+that host the application form on a per-company subdomain, which is why the
+wildcards are safe: `*.keka.com` reaches careers pages, not somebody's bank.
+
+That still leaves companies running their own careers page, so:
+
+`content_scripts` only covers the curated ATS hosts, so on a company's own
+careers page the extension used to say "doesn't run on this page yet" — a dead
+end, and most applications are not on the listed hosts. The long tail of smaller
+ATSs is not something we will ever finish enumerating either.
+
+Two routes past it, answering different questions:
+
+- **One-off — `activeTab`.** Opening the popup and pressing a button *is* the
+  gesture that grants host access to the current tab, so "Fill this page"
+  injects the content script itself (`background/inject.ts`) and fills. Works on
+  any page, no permission prompt, no standing access. This is the default.
+- **Standing — `optional_host_permissions`.** "Always run on \<host\>" requests
+  one origin through Chrome's own prompt and registers a persistent content
+  script, so the handle auto-appears there like it does on Greenhouse.
+
+The split matters for review. Nothing broad is requested at install, so the
+store listing carries no scary permission warning; every standing grant is the
+user's own decision and revocable from `chrome://extensions`. Shipping
+`<all_urls>` instead would ask everyone to trust us with their banking tabs so
+they can fill in a job application.
+
+`permissions.request()` is called from the popup, not the worker — it needs a
+user gesture and a service worker never has one. The permission list is the
+source of truth for what we run on: `syncGrantedSites()` reconciles registered
+scripts against it on install, on startup, and on every grant or revoke, because
+the user can change their mind in `chrome://extensions` without telling us.
+
+When the handle is there on a one-off injection it says so, and offers "Always
+run on this site" on its own card — a handle that appears after a manual fill
+and is silently gone on reload is worse than one that never appeared. The card
+can only hand off to the popup, though: `chrome.permissions.request` is not
+exposed to content scripts at all, so `chrome.action.openPopup()` is the closest
+route, and when Chrome declines it (the gesture does not always survive the
+message hop) the card says which toolbar icon to click instead.
+
+Injection is guarded on the content side by a `window` marker. `executeScript`
+does not check whether the script is already there, so on a page we cover
+statically — or on a second press — an unguarded inject would mount a second
+handle and report every fill twice.
+
 ### Why an iframe changes the answer
 
 `boards.greenhouse.io` and `jobs.lever.co` are usually embedded as cross-origin

@@ -1,5 +1,5 @@
 import { API } from "@/shared/config";
-import type { Request, Response, Status, FillReport } from "@/shared/messages";
+import type { Request, Response, SiteAccess, Status, FillReport } from "@/shared/messages";
 
 /**
  * Popup. Renders status and triggers a fill; it never touches the session or
@@ -22,6 +22,59 @@ function disconnected(): void {
   });
 }
 
+/**
+ * Offer to run on this site permanently.
+ *
+ * "Fill this page" already works everywhere via `activeTab`, so this is purely
+ * about not having to open the popup again on a site somebody applies through
+ * repeatedly - which is the toolbar problem this whole feature exists to avoid.
+ *
+ * `chrome.permissions.request()` HAS TO BE CALLED FROM HERE. It needs a user
+ * gesture, and a service worker never has one; asking from the background would
+ * simply be rejected. The popup is the only place with a real click behind it.
+ */
+async function offerSiteAccess(): Promise<void> {
+  const slot = document.getElementById("site");
+  if (!slot) return;
+
+  const result = await send<SiteAccess>({ type: "GET_SITE_ACCESS" });
+  if (!result.ok || !result.data.pattern || result.data.granted) return;
+
+  const { pattern, host } = result.data;
+
+  // Built rather than interpolated: `host` comes from the page the user is on.
+  // A parsed hostname cannot hold HTML metacharacters, so this is belt and
+  // braces - but page-derived text reaching innerHTML is not a habit worth
+  // starting in a privileged surface.
+  const button = document.createElement("button");
+  button.className = "ghost";
+  button.type = "button";
+  button.textContent = `Always run on ${host}`;
+
+  const note = document.createElement("p");
+  note.className = "msg";
+
+  slot.replaceChildren(button, note);
+
+  button.addEventListener("click", async () => {
+    let allowed = false;
+    try {
+      allowed = await chrome.permissions.request({ origins: [pattern] });
+    } catch {
+      allowed = false;
+    }
+
+    if (!allowed) {
+      note.textContent = "Not allowed - you can still use Fill this page.";
+      return;
+    }
+
+    await send({ type: "REGISTER_SITE", pattern });
+    button.remove();
+    note.textContent = `Job Autofill will open itself on ${host} from now on. Reload the page to see it.`;
+  });
+}
+
 function connected(status: Status): void {
   sub.textContent = status.email ?? "Connected";
 
@@ -39,10 +92,13 @@ function connected(status: Status): void {
     <button class="ghost" id="edit">Edit my profile</button>
     <button class="ghost" id="out">Disconnect</button>
     <p class="msg" id="msg"></p>
+    <div id="site"></div>
   `;
 
   const msg = document.getElementById("msg")!;
   const fill = document.getElementById("fill") as HTMLButtonElement;
+
+  void offerSiteAccess();
 
   fill.addEventListener("click", async () => {
     fill.disabled = true;

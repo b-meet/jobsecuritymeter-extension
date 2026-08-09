@@ -2,11 +2,19 @@ import { detectFields, type FieldMap, type FieldMatch } from "./detect";
 import { fillField } from "./fill";
 import { type VaultData } from "@/shared/vault";
 import { FILLABLE_FIELDS, resolveValue } from "./fields";
-import type { ContentMessage, FillReport, Request, Response, SitePage } from "@/shared/messages";
+import type {
+  ContentMessage,
+  FillReport,
+  Request,
+  Response,
+  SiteAccess,
+  SitePage,
+} from "@/shared/messages";
 import { frameIsBigEnough, isTucked, setTucked, OFFER_THRESHOLD } from "./ui/dock";
 import { mountPanel, type Panel } from "./ui/panel";
 import { throttled } from "./ui/raf";
 import { mountChip, type Chip } from "./ui/chip";
+import { isContextInvalidated } from "./context";
 
 /**
  * Content script.
@@ -23,21 +31,67 @@ import { mountChip, type Chip } from "./ui/chip";
 
 /* --------------------------------------------------------------- messaging */
 
+/**
+ * False once the extension has been reloaded out from under this page.
+ *
+ * A content script is not unloaded when its extension updates or reloads - it
+ * stays resident in every page it was already injected into, holding a
+ * `chrome.runtime` that now points at nothing. Every call from that point on
+ * throws "Extension context invalidated", which is why rebuilding during
+ * development and then pressing Fill without reloading the tab sprays errors
+ * into the site's console.
+ */
+let alive = true;
+
+/**
+ * Stop cleanly once the extension is gone.
+ *
+ * Nothing can be recovered from here - `chrome.runtime` is dead until the page
+ * reloads - so the only useful thing left is to take our UI off the page rather
+ * than leave a handle that throws on every click.
+ */
+function shutdown(): void {
+  if (!alive) return;
+  alive = false;
+
+  observer?.disconnect();
+  observer = null;
+  panel?.destroy();
+  panel = null;
+  chip?.destroy();
+  chip = null;
+}
+
 function ask<T>(request: Request): Promise<Response<T>> {
-  return chrome.runtime
-    .sendMessage(request)
-    .catch((): Response<T> => ({ ok: false, error: "Extension unavailable." }));
+  const gone: Response<T> = { ok: false, error: "Job Autofill was reloaded - refresh the page." };
+  if (!alive) return Promise.resolve(gone);
+
+  try {
+    return chrome.runtime.sendMessage(request).catch((error: unknown): Response<T> => {
+      if (isContextInvalidated(error)) shutdown();
+      return { ok: false, error: "Extension unavailable." };
+    });
+  } catch (error) {
+    // NOT redundant with the `.catch` above. Once the context is invalidated
+    // `sendMessage` throws SYNCHRONOUSLY, so there is no promise to attach a
+    // rejection handler to and the error escapes as an uncaught one.
+    if (isContextInvalidated(error)) shutdown();
+    return Promise.resolve(gone);
+  }
 }
 
 /**
  * Fetch the values for one fill.
  *
- * DELIBERATELY NOT CACHED. The rule in shared/messages is that the content
- * script asks for values only when a fill is actually happening; holding the
- * vault in a page-side closure for the lifetime of the tab would quietly turn
- * this script into a second copy of the user's profile, living in the same
- * process as whatever the page is running. A round-trip per click is cheap by
- * comparison, and the worker is the only thing holding a token either way.
+ * NOT CACHED ON THIS SIDE, and that is the whole point. The rule in
+ * shared/messages is that the content script asks for values only when a fill
+ * is actually happening; holding the vault in a page-side closure for the
+ * lifetime of the tab would quietly turn this script into a second copy of the
+ * user's profile, in the same process as whatever the page is running.
+ *
+ * The worker caches for a minute instead (see background/api.ts), so this is a
+ * message hop rather than a network round-trip. It has to be: a fill that takes
+ * half a second to appear reads as a button that did not work.
  */
 async function vaultValues(): Promise<{ data: VaultData } | { error: string }> {
   const result = await ask<{ data: VaultData }>({ type: "GET_VAULT" });
@@ -93,10 +147,46 @@ let panel: Panel | null = null;
 let chip: Chip | null = null;
 let connected = false;
 let tucked = false;
+/** Hoisted so shutdown() can disconnect it when the extension goes away. */
+let observer: MutationObserver | null = null;
+
+/**
+ * True when this frame only has a script because the popup injected one.
+ *
+ * A statically-matched site keeps the handle on every visit; an injected one
+ * loses it on reload. The card says which, and offers the fix, because a handle
+ * that silently stops appearing tomorrow is worse than one that never did.
+ */
+let temporary = false;
 
 function redetect(): void {
   matches = detectFields(document, fieldMap);
   chip?.setMatches(matches);
+}
+
+/**
+ * Why a given form did or did not fill, on the console.
+ *
+ * `console.debug` is hidden unless devtools is open with verbose logging on, so
+ * this costs a normal user nothing. It exists because "it just didn't fill" is
+ * almost impossible to act on from a bug report: the answer is always either
+ * "we never matched that field" or "we matched it and had nothing saved", and
+ * those need completely different fixes.
+ */
+function explain(data: VaultData | null): void {
+  const rows = matches.map((match) => ({
+    label: match.label,
+    key: match.key,
+    confidence: Number(match.confidence.toFixed(2)),
+    value: data ? (resolveValue(match.key, data) === undefined ? "(nothing saved)" : "ok") : "?",
+  }));
+
+  const unmatched = [...document.querySelectorAll("input, textarea, select")]
+    .filter((element) => !matches.some((match) => match.element === element))
+    .map((element) => element.getAttribute("name") || element.id || element.tagName.toLowerCase());
+
+  console.debug("[Job Autofill] matched %d field(s)", rows.length, rows);
+  console.debug("[Job Autofill] not matched:", unmatched);
 }
 
 /** The form the panel pins itself to when it cannot pin to the viewport. */
@@ -120,6 +210,8 @@ async function fillWholeForm(): Promise<void> {
   // succeeds silently while the user sees nothing happen.
   redetect();
 
+  explain(values.data);
+
   const report = runFill(values.data, matches);
   panel?.setState({
     kind: "report",
@@ -140,6 +232,7 @@ async function fillOneField(
 
   const value = resolveValue(key, values.data);
   if (value === undefined || value === "") {
+    explain(values.data);
     // Honest rather than silent: the field was recognised, there is just
     // nothing in the profile to put in it yet.
     chip?.flash("Nothing saved");
@@ -148,6 +241,21 @@ async function fillOneField(
 
   const outcome = fillField(element, value);
   if (!outcome.ok) chip?.flash("Couldn't fill");
+}
+
+/**
+ * Hand the permission ask over to the popup.
+ *
+ * `chrome.permissions.request` is not exposed to content scripts at all, so the
+ * handle cannot do this itself however it is dressed up. Opening the popup is
+ * the closest we get, and when Chrome declines to open it - the gesture does
+ * not always survive the message hop - we say plainly what to click instead.
+ */
+async function requestSiteAccess(): Promise<void> {
+  const result = await ask({ type: "OPEN_POPUP" });
+  if (!result.ok) {
+    panel?.setState({ kind: "error", message: result.error });
+  }
 }
 
 function ensurePanel(): void {
@@ -168,6 +276,9 @@ function ensurePanel(): void {
         ensureChip();
       }
     },
+    // Only offered when we are here on a one-off injection. The handler is
+    // absent otherwise, which is what keeps the note off the card entirely.
+    onAllowSite: temporary ? () => void requestSiteAccess() : undefined,
     anchor,
   });
 
@@ -213,30 +324,32 @@ function reconcile(): void {
 
 /* ------------------------------------------------------- popup-driven fills */
 
-chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
-  if (message?.type !== "FILL_NOW") return false;
+function listenForFills(): void {
+  chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
+    if (message?.type !== "FILL_NOW") return false;
 
-  redetect();
-  const report = runFill(message.data, matches);
+    redetect();
+    const report = runFill(message.data, matches);
 
-  // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab, so
-  // a career page with an embedded board runs this in both the wrapper and the
-  // board. Only a frame that had something to fill should say anything -
-  // otherwise an unrelated frame stacks a "nothing matched" card on top of the
-  // successful fill the user was actually watching.
-  if (matches.length > 0) {
-    ensurePanel();
-    panel?.setState({
-      kind: "report",
-      filled: report.filled.length,
-      skipped: report.skipped.length,
-    });
-    panel?.openOnce();
-  }
+    // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab,
+    // so a career page with an embedded board runs this in both the wrapper and
+    // the board. Only a frame that had something to fill should say anything -
+    // otherwise an unrelated frame stacks a "nothing matched" card on top of
+    // the successful fill the user was actually watching.
+    if (matches.length > 0) {
+      ensurePanel();
+      panel?.setState({
+        kind: "report",
+        filled: report.filled.length,
+        skipped: report.skipped.length,
+      });
+      panel?.openOnce();
+    }
 
-  sendResponse(report);
-  return false;
-});
+    sendResponse(report);
+    return false;
+  });
+}
 
 /* ---------------------------------------------------------------- bootstrap */
 
@@ -249,15 +362,25 @@ async function start(): Promise<void> {
   // tab, because a panel that never mounts leaves nothing to pull back out.
   tucked = await isTucked(location.origin);
 
-  const [map, isConnected] = await Promise.all([
+  const [map, isConnected, access] = await Promise.all([
     ask<FieldMap | null>({ type: "GET_FIELD_MAP" }),
     ask<boolean>({ type: "GET_CONNECTED" }),
+    // Only the top frame asks. A grant is per origin, and offering to "always
+    // run on" the origin of an embedded board would grant the wrong thing.
+    window.top === window.self
+      ? ask<SiteAccess>({ type: "GET_SITE_ACCESS", url: location.href })
+      : Promise.resolve({ ok: false as const, error: "iframe" }),
   ]);
 
   // Neither failure is fatal: detection falls back to its bundled heuristics,
   // and an unknown connection state just means the panel offers to connect.
   fieldMap = map.ok ? map.data : null;
   connected = isConnected.ok ? isConnected.data : false;
+  // Unknown resolves to permanent, so a failed lookup shows no note rather
+  // than nagging about a site that is in fact covered.
+  temporary = access.ok ? !access.data.granted : false;
+
+  if (!alive) return;
 
   redetect();
   reconcile();
@@ -266,7 +389,7 @@ async function start(): Promise<void> {
   // them wholesale between wizard steps, so a single pass at load would miss
   // most of them. Throttled to one pass per frame - these forms mutate
   // constantly while the user types.
-  const observer = new MutationObserver(
+  observer = new MutationObserver(
     throttled(() => {
       const before = matches.length;
       redetect();
@@ -278,4 +401,24 @@ async function start(): Promise<void> {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-void start();
+/**
+ * Marker proving this frame already has a copy running.
+ *
+ * `chrome.scripting.executeScript` does not check whether the script is already
+ * there, and the popup's "Fill this page" injects unconditionally when its
+ * first message finds no listener. On a page we DO cover statically - or on a
+ * second press - that would mount a second handle, register a second message
+ * listener, and report every fill twice.
+ *
+ * Set on `window`, which is per-frame, so each frame of a page decides for
+ * itself. Content scripts run in an isolated world, so the page cannot see or
+ * forge this.
+ */
+const LOADED = "__jsmAutofillLoaded";
+type Marked = typeof globalThis & { [LOADED]?: true };
+
+if (!(globalThis as Marked)[LOADED]) {
+  (globalThis as Marked)[LOADED] = true;
+  listenForFills();
+  void start();
+}
