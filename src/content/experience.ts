@@ -31,6 +31,53 @@ const MAX_YEARS = 70;
 
 const MONTHS_IN_YEAR = 12;
 
+/** A months figure typed into a box of its own. Null when there isn't one. */
+function statedMonths(raw: string): number | null {
+  const found = /\d+/.exec(raw.trim());
+  if (!found) return null;
+
+  const months = Number(found[0]);
+  return Number.isFinite(months) ? months : null;
+}
+
+/**
+ * The profile's two experience boxes, read as one answer.
+ *
+ * An explicit months figure BEATS anything inferred from the years box. The
+ * user answering "how many additional months" directly is better evidence than
+ * arithmetic on a decimal they may not have meant as one - and somebody with
+ * five years and eight months has no natural way to write that as a decimal
+ * anyway, which is why the second box exists.
+ */
+export function combineExperience(years: string, months: string): Experience | null {
+  const parsed = parseExperience(years);
+  const stated = statedMonths(months);
+
+  if (!parsed && stated === null) return null;
+
+  let whole = parsed?.years ?? 0;
+  let rest = stated ?? parsed?.months ?? 0;
+
+  whole += Math.floor(rest / MONTHS_IN_YEAR);
+  rest %= MONTHS_IN_YEAR;
+
+  if (whole > MAX_YEARS) return null;
+
+  return { years: whole, months: rest };
+}
+
+/**
+ * Back to one number, for the forms that ask in one box.
+ *
+ * Five years and six months is "5.5" - the shape those boxes expect, and the
+ * shape parseExperience reads back. Trailing zeros are stripped so a whole
+ * number stays a whole number rather than arriving as "5.00".
+ */
+export function formatExperience({ years, months }: Experience): string {
+  if (months === 0) return String(years);
+  return (years + months / MONTHS_IN_YEAR).toFixed(2).replace(/\.?0+$/, "");
+}
+
 export function parseExperience(raw: string): Experience | null {
   const text = raw.trim().toLowerCase();
   if (!text) return null;

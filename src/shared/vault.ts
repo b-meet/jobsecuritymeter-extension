@@ -42,6 +42,13 @@
  *     still exist for the extension but are now DERIVED - see deriveCurrentRole.
  *
  * Both steps run on read; see migrateVaultData.
+ *
+ * NOT BUMPED FOR `tags` (skills) OR `monthsExperience`. This number drives
+ * migrateVaultData, and neither of those rewrites anything already stored: a
+ * blob written before them is missing two keys, which reads exactly the same as
+ * a user who has not filled them in. Bumping it would mean every row rewriting
+ * itself to say nothing changed. New shapes only earn a version when an OLD
+ * blob has to be repaired to match them.
  */
 export const VAULT_SCHEMA_VERSION = 3;
 
@@ -58,7 +65,18 @@ export type VaultFieldType =
   | "date"
   | "boolean"
   | "choice"
-  | "list";
+  | "list"
+  /**
+   * A bare set of short strings - skills, and nothing else so far.
+   *
+   * Distinct from `list`, which is rows with named columns. A skill has no
+   * columns: modelling it as a one-column list would make the editor render a
+   * labelled card per skill with its own remove button, which is an absurd
+   * amount of furniture around the word "React" and makes entering twenty of
+   * them a chore. Tags are entered by typing and pressing enter, and they are
+   * filled into a form as one comma-separated string.
+   */
+  | "tags";
 
 /**
  * Ceiling on rows in a repeatable list.
@@ -69,12 +87,25 @@ export type VaultFieldType =
  */
 export const MAX_LIST_ITEMS = 20;
 
+/**
+ * Ceiling on a `tags` field, and on one tag.
+ *
+ * Same reasoning as MAX_LIST_ITEMS - the whole profile is one blob the
+ * extension pulls on every fill - but the numbers are different because the
+ * things are. Forty skills is already more than any form will take, and a
+ * "skill" longer than sixty characters is a sentence that belongs in the
+ * summary.
+ */
+export const MAX_TAGS = 40;
+export const MAX_TAG_LENGTH = 60;
+
 export type VaultFieldGroupId =
   | "identity"
   | "location"
   | "links"
   | "authorization"
   | "current"
+  | "skills"
   | "preferences"
   | "eeo";
 
@@ -244,6 +275,19 @@ export const VAULT_FIELD_GROUPS: readonly {
       "Every role, newest first. Tick the one you're in now — that's the one we put in “current employer” and “current title” on applications.",
     fields: [
       { key: "yearsExperience", type: "text", label: "Years of experience", maxLength: 10 },
+      /**
+       * The other half of the same answer.
+       *
+       * Plenty of application forms - Keka and most of the Indian ATSs among
+       * them - ask for total experience as a Years box beside a Months
+       * dropdown, and there was no way to answer the second one. The extension
+       * can infer months from "5.5", but inferring is not the same as being
+       * told: somebody with five years and eight months has no natural way to
+       * write that as a decimal, and should not have to.
+       *
+       * Left blank it changes nothing, and the inference still runs.
+       */
+      { key: "monthsExperience", type: "text", label: "Additional months", maxLength: 2 },
       {
         // One list, current role included, rather than a fixed pair of
         // "current company / current title" inputs sitting above it. The
@@ -262,6 +306,21 @@ export const VAULT_FIELD_GROUPS: readonly {
           { key: "endDate", type: "date", label: "End date" },
           { key: "description", type: "textarea", label: "What you did", maxLength: 2000, rows: 3 },
         ],
+      },
+    ],
+  },
+  {
+    id: "skills",
+    tab: "work",
+    label: "Skills",
+    description:
+      "The keywords a recruiter screens on. Filled into a form as one comma-separated list, so put the ones you want seen first.",
+    fields: [
+      {
+        key: "skills",
+        type: "tags",
+        label: "Skills",
+        itemNoun: "skill",
       },
     ],
   },
@@ -312,7 +371,26 @@ export const VAULT_FIELDS: ReadonlyMap<string, VaultField> = new Map(
 /** One row of a `list` field. Flat by construction - never a nested list. */
 export type VaultListItem = Record<string, string | boolean>;
 
-export type VaultValue = string | boolean | VaultListItem[];
+export type VaultValue = string | boolean | VaultListItem[] | string[];
+
+/**
+ * Narrows the two array shapes apart - `tags` holds strings, `list` holds rows.
+ *
+ * `Array.isArray` was enough to reach VaultListItem[] until tags existed, so
+ * these two exist to keep every reader saying which shape it expects rather
+ * than casting. An EMPTY array satisfies both, which is right: an empty list is
+ * an empty list whichever kind of field it came from.
+ */
+export function isTagList(value: VaultValue | undefined): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+export function isRowList(value: VaultValue | undefined): value is VaultListItem[] {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry))
+  );
+}
 
 export type VaultData = Record<string, VaultValue>;
 
@@ -394,6 +472,43 @@ function validateListValue(field: VaultField, value: unknown): VaultListItem[] |
   return items;
 }
 
+/**
+ * Whitelist a `tags` value down to a clean set of short strings.
+ *
+ * Blanks and duplicates are DROPPED rather than rejected, which is the
+ * opposite of how list rows are treated one function up - and deliberately so.
+ * A blank row in a work history means the user typed something and lost it; a
+ * blank tag means they hit enter twice, and "React" typed a second time means
+ * they forgot they had already added it. Neither is data to preserve, and
+ * failing the whole save over one of them would be baffling.
+ *
+ * Everything that IS a shape problem - a non-array, a non-string entry, a tag
+ * past the length limit, more tags than the cap - still rejects the key
+ * outright, same as anywhere else.
+ */
+function validateTagsValue(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_TAGS) return null;
+
+  const tags: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of value) {
+    if (typeof entry !== "string") return null;
+
+    const trimmed = entry.trim().replace(/\s+/g, " ");
+    if (trimmed.length > MAX_TAG_LENGTH) return null;
+    if (trimmed === "") continue;
+
+    const fingerprint = trimmed.toLowerCase();
+    if (seen.has(fingerprint)) continue;
+
+    seen.add(fingerprint);
+    tags.push(trimmed);
+  }
+
+  return tags;
+}
+
 export function validateVaultData(input: unknown): VaultValidationResult {
   const data: VaultData = {};
   const rejected: string[] = [];
@@ -415,6 +530,16 @@ export function validateVaultData(input: unknown): VaultValidationResult {
         continue;
       }
       data[key] = value;
+      continue;
+    }
+
+    if (field.type === "tags") {
+      const tags = validateTagsValue(value);
+      if (!tags) {
+        rejected.push(key);
+        continue;
+      }
+      data[key] = tags;
       continue;
     }
 
@@ -512,7 +637,7 @@ export const DERIVED_KEYS: readonly string[] = [...DERIVED_FIELDS.keys()];
  * stale employer behind after the row is deleted.
  */
 export function deriveCurrentRole(data: VaultData): VaultData {
-  const roles = Array.isArray(data.roles) ? data.roles : [];
+  const roles = isRowList(data.roles) ? data.roles : [];
   const filled = roles.filter(listItemHasContent);
   const current = filled.find((role) => role.current === true) ?? filled[0];
 
@@ -556,7 +681,7 @@ function migrateOtherUrl(data: VaultData): VaultData {
   const url = legacy.trim();
   if (url === "") return migrated;
 
-  const existing = Array.isArray(data.additionalLinks) ? data.additionalLinks : [];
+  const existing = isRowList(data.additionalLinks) ? data.additionalLinks : [];
   if (!existing.some((link) => link.url === url)) {
     migrated.additionalLinks = [...existing, { label: "Other", url }];
   }
@@ -572,7 +697,7 @@ function migrateOtherUrl(data: VaultData): VaultData {
  * from here, and it will rewrite them from the row on the next save.
  */
 function migrateRoles(data: VaultData): VaultData {
-  const hasLegacyList = Array.isArray(data.previousRoles);
+  const hasLegacyList = isRowList(data.previousRoles);
   const company = typeof data.currentCompany === "string" ? data.currentCompany.trim() : "";
   const title = typeof data.currentTitle === "string" ? data.currentTitle.trim() : "";
   const needsCurrentRow = (company !== "" || title !== "") && !Array.isArray(data.roles);
@@ -580,10 +705,10 @@ function migrateRoles(data: VaultData): VaultData {
   if (!hasLegacyList && !needsCurrentRow) return data;
 
   const migrated = { ...data };
-  const previous = Array.isArray(data.previousRoles) ? data.previousRoles : [];
+  const previous = isRowList(data.previousRoles) ? data.previousRoles : [];
   delete migrated.previousRoles;
 
-  const existing = Array.isArray(data.roles) ? data.roles : [];
+  const existing = isRowList(data.roles) ? data.roles : [];
   // Newest first, so the role they are in now leads.
   const currentRow: VaultListItem[] =
     needsCurrentRow && !existing.some((role) => role.current === true)
@@ -616,7 +741,15 @@ export function listItemHasContent(item: VaultListItem): boolean {
 function isFilled(value: VaultValue | undefined): boolean {
   if (typeof value === "boolean") return true;
   if (typeof value === "string") return value !== "";
-  if (Array.isArray(value)) return value.some(listItemHasContent);
+
+  if (Array.isArray(value)) {
+    // Both array shapes land here, and they count differently: a tag is filled
+    // when it has any text at all, a row when one of its columns does.
+    return value.some((entry) =>
+      typeof entry === "string" ? entry.trim() !== "" : listItemHasContent(entry),
+    );
+  }
+
   return false;
 }
 

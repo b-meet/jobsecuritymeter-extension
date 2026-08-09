@@ -455,3 +455,29 @@ describe("custom dropdowns", () => {
     expect(keyFor(root, '[name="p_1"]')).toBeUndefined();
   });
 });
+
+describe("skills", () => {
+  it("matches the ways a form asks for them", () => {
+    for (const label of [
+      "Skills",
+      "Key skills",
+      "Technical Skills",
+      "Skill set",
+      "Core competencies",
+    ]) {
+      const root = form(`<label for="s">${label}</label><textarea id="s"></textarea>`);
+      expect(keyFor(root, "#s"), label).toBe("skills");
+    }
+  });
+
+  it("stays out of questions that only mention skills", () => {
+    for (const label of [
+      "Rate your skills in Python",
+      "Which skill would you most like to develop?",
+      "Upload your skills matrix",
+    ]) {
+      const root = form(`<label for="s">${label}</label><textarea id="s"></textarea>`);
+      expect(keyFor(root, "#s"), label).not.toBe("skills");
+    }
+  });
+});

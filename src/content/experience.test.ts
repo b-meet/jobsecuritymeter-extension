@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExperience } from "./experience";
+import { combineExperience, formatExperience, parseExperience } from "./experience";
 
 describe("parseExperience", () => {
   it("reads a whole number of years", () => {
@@ -51,5 +51,52 @@ describe("parseExperience", () => {
     // one left blank.
     expect(parseExperience("1998")).toBeNull();
     expect(parseExperience("1200000")).toBeNull();
+  });
+});
+
+describe("combineExperience", () => {
+  it("takes the months box as the answer to the months question", () => {
+    expect(combineExperience("5", "6")).toEqual({ years: 5, months: 6 });
+  });
+
+  it("lets an explicit months figure beat one inferred from a decimal", () => {
+    // "5.5" infers six months; the user then typed 8 into the box that asks
+    // directly. Answering the question beats arithmetic on a number they may
+    // not have meant as one.
+    expect(combineExperience("5.5", "8")).toEqual({ years: 5, months: 8 });
+  });
+
+  it("falls back to the inferred months when the box is empty", () => {
+    expect(combineExperience("5.5", "")).toEqual({ years: 5, months: 6 });
+    expect(combineExperience("5.5", "   ")).toEqual({ years: 5, months: 6 });
+  });
+
+  it("carries an over-long months figure into the years", () => {
+    expect(combineExperience("2", "18")).toEqual({ years: 3, months: 6 });
+  });
+
+  it("works from the months box alone", () => {
+    expect(combineExperience("", "8")).toEqual({ years: 0, months: 8 });
+  });
+
+  it("gives up when neither box says anything usable", () => {
+    expect(combineExperience("", "")).toBeNull();
+    expect(combineExperience("fresher", "")).toBeNull();
+  });
+});
+
+describe("formatExperience", () => {
+  it("writes a whole number of years as a whole number", () => {
+    expect(formatExperience({ years: 5, months: 0 })).toBe("5");
+  });
+
+  it("writes a part year as a decimal", () => {
+    expect(formatExperience({ years: 5, months: 6 })).toBe("5.5");
+    expect(formatExperience({ years: 2, months: 3 })).toBe("2.25");
+  });
+
+  it("does not leave trailing zeros behind", () => {
+    expect(formatExperience({ years: 10, months: 0 })).toBe("10");
+    expect(formatExperience({ years: 1, months: 1 })).toBe("1.08");
   });
 });

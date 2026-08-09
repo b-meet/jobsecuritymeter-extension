@@ -100,6 +100,16 @@ const KEYWORDS: Record<string, string[]> = {
    */
   experienceYears: ["experience (years)", "years"],
   experienceMonths: ["experience (months)", "months"],
+  skills: [
+    "key skills",
+    "technical skills",
+    "primary skills",
+    "relevant skills",
+    "core competencies",
+    "areas of expertise",
+    "skill set",
+    "skills",
+  ],
   // CTC ("cost to company") is how most Indian job forms ask both of these, and
   // they are routinely asked side by side. Putting the desired figure in the
   // box asking what you earn now is the kind of mistake nobody spots before
@@ -244,6 +254,13 @@ const EXCLUSIONS: Record<string, readonly string[]> = {
    */
   experienceYears: EXPERIENCE_EXCLUSIONS,
   experienceMonths: EXPERIENCE_EXCLUSIONS,
+  /**
+   * "Skills" turns up in questions that are not asking for a list of them.
+   * "Rate your skills", "which skill would you most like to develop" and the
+   * upload box labelled "Skills matrix" all want something other than a
+   * comma-separated dump of everything the user knows.
+   */
+  skills: ["rate ", "rating", "how would you", "which skill", "develop", "matrix", "upload", "gap"],
 };
 
 function isExcluded(key: string, signature: string): boolean {
