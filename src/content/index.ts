@@ -14,6 +14,7 @@ import { frameIsBigEnough, isTucked, setTucked, OFFER_THRESHOLD } from "./ui/doc
 import { mountPanel, type Panel } from "./ui/panel";
 import { throttled } from "./ui/raf";
 import { mountChip, type Chip } from "./ui/chip";
+import { isContextInvalidated } from "./context";
 
 /**
  * Content script.
@@ -30,10 +31,53 @@ import { mountChip, type Chip } from "./ui/chip";
 
 /* --------------------------------------------------------------- messaging */
 
+/**
+ * False once the extension has been reloaded out from under this page.
+ *
+ * A content script is not unloaded when its extension updates or reloads - it
+ * stays resident in every page it was already injected into, holding a
+ * `chrome.runtime` that now points at nothing. Every call from that point on
+ * throws "Extension context invalidated", which is why rebuilding during
+ * development and then pressing Fill without reloading the tab sprays errors
+ * into the site's console.
+ */
+let alive = true;
+
+/**
+ * Stop cleanly once the extension is gone.
+ *
+ * Nothing can be recovered from here - `chrome.runtime` is dead until the page
+ * reloads - so the only useful thing left is to take our UI off the page rather
+ * than leave a handle that throws on every click.
+ */
+function shutdown(): void {
+  if (!alive) return;
+  alive = false;
+
+  observer?.disconnect();
+  observer = null;
+  panel?.destroy();
+  panel = null;
+  chip?.destroy();
+  chip = null;
+}
+
 function ask<T>(request: Request): Promise<Response<T>> {
-  return chrome.runtime
-    .sendMessage(request)
-    .catch((): Response<T> => ({ ok: false, error: "Extension unavailable." }));
+  const gone: Response<T> = { ok: false, error: "Job Autofill was reloaded - refresh the page." };
+  if (!alive) return Promise.resolve(gone);
+
+  try {
+    return chrome.runtime.sendMessage(request).catch((error: unknown): Response<T> => {
+      if (isContextInvalidated(error)) shutdown();
+      return { ok: false, error: "Extension unavailable." };
+    });
+  } catch (error) {
+    // NOT redundant with the `.catch` above. Once the context is invalidated
+    // `sendMessage` throws SYNCHRONOUSLY, so there is no promise to attach a
+    // rejection handler to and the error escapes as an uncaught one.
+    if (isContextInvalidated(error)) shutdown();
+    return Promise.resolve(gone);
+  }
 }
 
 /**
@@ -103,6 +147,8 @@ let panel: Panel | null = null;
 let chip: Chip | null = null;
 let connected = false;
 let tucked = false;
+/** Hoisted so shutdown() can disconnect it when the extension goes away. */
+let observer: MutationObserver | null = null;
 
 /**
  * True when this frame only has a script because the popup injected one.
@@ -334,6 +380,8 @@ async function start(): Promise<void> {
   // than nagging about a site that is in fact covered.
   temporary = access.ok ? !access.data.granted : false;
 
+  if (!alive) return;
+
   redetect();
   reconcile();
 
@@ -341,7 +389,7 @@ async function start(): Promise<void> {
   // them wholesale between wizard steps, so a single pass at load would miss
   // most of them. Throttled to one pass per frame - these forms mutate
   // constantly while the user types.
-  const observer = new MutationObserver(
+  observer = new MutationObserver(
     throttled(() => {
       const before = matches.length;
       redetect();
