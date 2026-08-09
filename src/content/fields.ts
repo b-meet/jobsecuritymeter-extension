@@ -1,23 +1,27 @@
 import { DERIVED_FIELDS, VAULT_FIELDS, type VaultData } from "@/shared/vault";
+import { parseExperience } from "./experience";
 
 /**
  * Everything the matcher may fill, and how to turn a key into a value.
  *
- * Three kinds of key end up here, and detection cannot tell them apart - nor
+ * Four kinds of key end up here, and detection cannot tell them apart - nor
  * should it. It matches an input to a key and asks for a value.
  *
  *   1. STORED. A key the user typed into the profile editor.
  *   2. DERIVED. Computed by the API and sent flat - `currentCompany` from the
  *      ticked role. Declared in shared/vault.ts, which is the synced contract.
- *   3. COMPOSED. Assembled here, in the extension, from stored values.
+ *   3. COMPOSED. Assembled here, in the extension, by joining stored values.
+ *   4. COMPUTED. Assembled here too, but by reading ONE stored value and
+ *      transforming it - "5.5" years of experience into a years box and a
+ *      months box.
  *
- * WHY COMPOSED KEYS LIVE HERE AND NOT IN THE CONTRACT. They are a joining of
- * values the extension already holds - "full name" is first plus last, nothing
- * more. Sending them from the API would grow the payload with data it already
- * contains and force a contract re-sync every time a form taught us a new
- * shape. Derived keys are different: they read `roles`, and the extension
- * should not have to understand the shape of a list to answer "current
- * employer".
+ * WHY COMPOSED AND COMPUTED KEYS LIVE HERE AND NOT IN THE CONTRACT. They are
+ * rearrangements of values the extension already holds - "full name" is first
+ * plus last, nothing more. Sending them from the API would grow the payload
+ * with data it already contains and force a contract re-sync every time a form
+ * taught us a new shape. Derived keys are different: they read `roles`, and the
+ * extension should not have to understand the shape of a list to answer
+ * "current employer".
  */
 
 export type FillableField = {
@@ -30,6 +34,13 @@ type CompositeField = FillableField & {
   /** Stored keys read, in order. Blank parts are skipped, not padded. */
   parts: readonly string[];
   separator: string;
+};
+
+type ComputedField = FillableField & {
+  /** The single stored key this is read from. */
+  from: string;
+  /** Returns undefined when the stored value cannot be read as this shape. */
+  compute: (value: string) => string | undefined;
 };
 
 /**
@@ -69,6 +80,45 @@ const COMPOSITE_FIELDS: ReadonlyMap<string, CompositeField> = new Map(
 );
 
 /**
+ * Keys that re-shape a single stored answer to fit how a form asks for it.
+ *
+ * "Total experience" is the one that made this necessary. The profile keeps it
+ * as one box because that is how somebody thinks about it, while a good share
+ * of forms - Keka and most of the Indian ATSs - split it into a Years input and
+ * a Months dropdown standing next to each other. Both controls are real,
+ * separately labelled, and separately matched; without these keys the matcher
+ * recognises them and then has nothing to offer either one.
+ *
+ * A months value of "0" is a real answer, not a blank, and is filled as such -
+ * five years of experience means zero months, and a Months dropdown left on its
+ * placeholder is an unanswered question on a form that will not submit.
+ */
+const COMPUTED: readonly ComputedField[] = [
+  {
+    key: "experienceYears",
+    label: "Experience (years)",
+    from: "yearsExperience",
+    compute: (raw) => {
+      const parsed = parseExperience(raw);
+      return parsed ? String(parsed.years) : undefined;
+    },
+  },
+  {
+    key: "experienceMonths",
+    label: "Experience (months)",
+    from: "yearsExperience",
+    compute: (raw) => {
+      const parsed = parseExperience(raw);
+      return parsed ? String(parsed.months) : undefined;
+    },
+  },
+];
+
+const COMPUTED_FIELDS: ReadonlyMap<string, ComputedField> = new Map(
+  COMPUTED.map((field) => [field.key, field] as const),
+);
+
+/**
  * A list cannot be typed into a single input, so `roles` and `additionalLinks`
  * are not offered to the matcher at all. Their useful content reaches forms
  * through the derived keys instead.
@@ -79,6 +129,7 @@ const FILLABLE_ENTRIES: readonly (readonly [string, FillableField])[] = [
   ...SCALAR_VAULT_FIELDS,
   ...DERIVED_FIELDS.values(),
   ...COMPOSITE_FIELDS.values(),
+  ...COMPUTED_FIELDS.values(),
 ].map((field) => [field.key, field] as const);
 
 export const FILLABLE_FIELDS: ReadonlyMap<string, FillableField> = new Map(FILLABLE_ENTRIES);
@@ -91,6 +142,14 @@ export const FILLABLE_FIELDS: ReadonlyMap<string, FillableField> = new Map(FILLA
  * lands there too: it is real data, but not data that belongs in a text box.
  */
 export function resolveValue(key: string, data: VaultData): string | boolean | undefined {
+  const computed = COMPUTED_FIELDS.get(key);
+
+  if (computed) {
+    const source = data[computed.from];
+    if (typeof source !== "string") return undefined;
+    return computed.compute(source);
+  }
+
   const composite = COMPOSITE_FIELDS.get(key);
 
   if (composite) {

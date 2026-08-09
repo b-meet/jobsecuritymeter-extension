@@ -166,3 +166,41 @@ describe("fillField against a framework that fights back", () => {
     expect(input.value).toBe("hello");
   });
 });
+
+describe("fillField on a native select", () => {
+  function select(options: readonly string[]): HTMLSelectElement {
+    document.body.innerHTML = "";
+    const el = document.createElement("select");
+    for (const text of ["", ...options]) {
+      const option = document.createElement("option");
+      option.textContent = text;
+      option.value = text;
+      el.appendChild(option);
+    }
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it("picks a dial code by its digits rather than by substring", () => {
+    // The list is alphabetical, so a first-match `includes` answers "+1" with
+    // "India (+91)" - the option that happens to be higher up.
+    const el = select(["Anguilla (+1264)", "India (+91)", "United States (+1)"]);
+
+    expect(fillField(el, "+1")).toEqual({ ok: true });
+    expect(el.value).toBe("United States (+1)");
+  });
+
+  it("answers a zero-padded months dropdown", () => {
+    const el = select(["00", "06", "11"]);
+
+    expect(fillField(el, "6")).toEqual({ ok: true });
+    expect(el.value).toBe("06");
+  });
+
+  it("leaves the control alone when nothing in the list fits", () => {
+    const el = select(["India (+91)", "United States (+1)"]);
+
+    expect(fillField(el, "+44")).toEqual({ ok: false, reason: "no matching option" });
+    expect(el.value).toBe("");
+  });
+});

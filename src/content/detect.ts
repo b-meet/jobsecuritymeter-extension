@@ -20,11 +20,21 @@ import { FILLABLE_FIELDS } from "./fields";
  */
 
 export type FieldMatch = {
-  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  /**
+   * Widened from the form controls to any element, because a custom dropdown is
+   * frequently a `<div role="combobox">` with no form control in it at all -
+   * and those are disproportionately the fields worth filling (country, dial
+   * code, state). Narrow with `isFieldElement` before writing a value; a match
+   * carrying `control: "combo"` goes to combo.ts instead.
+   */
+  element: HTMLElement;
   key: string;
   confidence: number;
   label: string;
-  /** Set when the match came from a hand-written override rather than a guess. */
+  /**
+   * How to drive this control. Set by a hand-written override, or by detection
+   * itself when the element declares `role="combobox"`.
+   */
   control?: "input" | "select" | "combo";
 };
 
@@ -71,7 +81,25 @@ const KEYWORDS: Record<string, string[]> = {
   requiresSponsorship: ["sponsorship", "require sponsorship", "visa sponsorship"],
   currentCompany: ["current company", "current employer", "company", "employer"],
   currentTitle: ["current title", "job title", "current role", "occupation"],
-  yearsExperience: ["years of experience", "years experience", "experience in years"],
+  yearsExperience: [
+    "years of experience",
+    "years experience",
+    "experience in years",
+    "total experience",
+    "overall experience",
+  ],
+  /**
+   * The same answer, split across two controls.
+   *
+   * Keka and most of the Indian ATSs ask for total experience as a "Years"
+   * input beside a "Months" dropdown rather than as one box. The labels really
+   * are just those two words - which is why the exclusion lists below are as
+   * long as they are, and why `yearsExperience` above keeps its longer phrases:
+   * a form asking the question once, properly, must not be answered with only
+   * the whole-years half of it.
+   */
+  experienceYears: ["experience (years)", "years"],
+  experienceMonths: ["experience (months)", "months"],
   // CTC ("cost to company") is how most Indian job forms ask both of these, and
   // they are routinely asked side by side. Putting the desired figure in the
   // box asking what you earn now is the kind of mistake nobody spots before
@@ -98,7 +126,18 @@ const KEYWORDS: Record<string, string[]> = {
     "compensation",
   ],
   salaryCurrency: ["currency"],
-  noticePeriod: ["notice period", "notice"],
+  // "Available to join (in days)" is how Keka and a lot of Indian forms ask for
+  // a notice period, and none of the wording overlaps "notice" at all - so the
+  // field was recognised as nothing, every time, on the forms that ask it most.
+  noticePeriod: [
+    "notice period",
+    "available to join",
+    "availability to join",
+    "days to join",
+    "time to join",
+    "joining time",
+    "notice",
+  ],
   earliestStartDate: ["start date", "available from", "availability date", "earliest start"],
   willingToRelocate: ["relocate", "relocation", "willing to move"],
   remotePreference: ["remote", "work preference", "onsite", "hybrid"],
@@ -125,6 +164,27 @@ const KEYWORDS: Record<string, string[]> = {
  * before submitting, so the guard is deliberately eager - a key that bows out
  * leaves the field to a more specific key, or to the user.
  */
+/** Shared by both halves of the split experience pair - see below. */
+const EXPERIENCE_EXCLUSIONS: readonly string[] = [
+  "salary",
+  "ctc",
+  "compensation",
+  "notice",
+  "join",
+  "relevant",
+  "graduat",
+  "passing",
+  "birth",
+  "age",
+  "school",
+  "college",
+  "university",
+  "degree",
+  "address",
+  "visa",
+  "gap",
+];
+
 const EXCLUSIONS: Record<string, readonly string[]> = {
   fullName: [
     "first",
@@ -169,6 +229,21 @@ const EXCLUSIONS: Record<string, readonly string[]> = {
   ],
   currentSalary: ["expected", "desired", "target", "preferred", "minimum", "maximum", "range"],
   desiredSalary: ["current", "present", "existing"],
+  /**
+   * "Years" and "Months" are the shortest keywords in the file, and they are
+   * only tolerable because everything else a form measures in them is listed
+   * here. A job application asks about years of study, years at an address,
+   * months of notice and a year of birth, and answering any of those with a
+   * length of service would be confidently wrong.
+   *
+   * The two lists are identical on purpose - every question below is asked in
+   * either unit, and remembering which is which is exactly the sort of detail
+   * that rots. They deliberately do NOT exclude each other: a "Years" box whose
+   * only readable text comes from a heading shared with the Months control
+   * would otherwise disqualify itself, which is the very pair this exists for.
+   */
+  experienceYears: EXPERIENCE_EXCLUSIONS,
+  experienceMonths: EXPERIENCE_EXCLUSIONS,
 };
 
 function isExcluded(key: string, signature: string): boolean {
@@ -192,6 +267,41 @@ const BY_AUTOCOMPLETE = new Map<string, string>(
 
 export type FieldElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
+/**
+ * Is this match something a value can be written straight into?
+ *
+ * FieldMatch.element is an HTMLElement so that custom dropdowns can be matched
+ * at all, which means every caller that intends to write has to ask first.
+ */
+export function isFieldElement(element: Element): element is FieldElement {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement
+  );
+}
+
+/**
+ * Everything worth looking at on a page.
+ *
+ * `[role="combobox"]` earns its place because the controls most likely to be a
+ * custom dropdown are the ones we most want to fill - country, dial code,
+ * state, notice period - and a native `<select>` cannot be searched, so a
+ * two-hundred entry list is essentially never one. Matching only form controls
+ * meant those fields were not skipped so much as never seen: they did not
+ * appear in the count, the fill report, or the diagnostic that explains a miss.
+ */
+const CANDIDATES = 'input, textarea, select, [role="combobox"]';
+
+function isCombobox(element: Element): element is HTMLElement {
+  return element instanceof HTMLElement && element.getAttribute("role") === "combobox";
+}
+
+function isUsableCombobox(element: Element): element is HTMLElement {
+  if (!isCombobox(element)) return false;
+  return !element.hasAttribute("disabled") && element.getAttribute("aria-disabled") !== "true";
+}
+
 /** Input types that never hold profile data. */
 const SKIP_TYPES = new Set(["password", "hidden", "submit", "button", "reset", "image", "file"]);
 
@@ -212,16 +322,19 @@ function isFillable(element: Element): element is FieldElement {
  * framework-generated (`field_4823901`), so a match there is weak evidence
  * compared to a visible label a human wrote.
  */
-function signatureOf(element: FieldElement): string {
+function signatureOf(element: HTMLElement): string {
   const described: string[] = [];
 
   // `.labels` is the native association list - it covers both `for=` and
   // wrapping labels with no selector building, so there is no id to escape.
   // The earlier `label[for="${CSS.escape(id)}"]` lookup meant an id containing
   // a quote or bracket produced an invalid selector that threw, and CSS.escape
-  // itself is missing in some environments.
-  for (const label of element.labels ?? []) {
-    if (label.textContent) described.push(label.textContent);
+  // itself is missing in some environments. Only form controls have it; a
+  // `<div role="combobox">` is described by aria and its surroundings alone.
+  if (isFieldElement(element)) {
+    for (const label of element.labels ?? []) {
+      if (label.textContent) described.push(label.textContent);
+    }
   }
 
   const wrapping = element.closest("label");
@@ -275,7 +388,7 @@ const NEARBY_MAX_LENGTH = 240;
  * wrong half of somebody's name. Stopping there costs a match; not stopping
  * would cost correctness.
  */
-function nearbyText(element: FieldElement): string {
+function nearbyText(element: HTMLElement): string {
   let node = element.parentElement;
 
   for (let depth = 0; node && depth < NEARBY_MAX_DEPTH; depth += 1) {
@@ -290,11 +403,22 @@ function nearbyText(element: FieldElement): string {
   return "";
 }
 
+/**
+ * Counts custom dropdowns too, not just form controls.
+ *
+ * The one-field rule above is only as good as this count. A container holding a
+ * "Years" input beside a `<div role="combobox">` for months looks like a
+ * single-field container to a query that only knows about `<select>`, so the
+ * walk would climb past it and hand BOTH controls the text "Years Months" -
+ * which is precisely the ambiguity the rule exists to refuse.
+ */
 function countFillable(node: Element): number {
   let count = 0;
-  for (const candidate of node.querySelectorAll("input, textarea, select")) {
-    if (isFillable(candidate)) count += 1;
+
+  for (const candidate of node.querySelectorAll(CANDIDATES)) {
+    if (isCombobox(candidate) ? isUsableCombobox(candidate) : isFillable(candidate)) count += 1;
   }
+
   return count;
 }
 
@@ -323,7 +447,7 @@ function textWithin(node: Element): string {
 }
 
 /** Human-readable name for the fill report. */
-function labelOf(element: FieldElement): string {
+function labelOf(element: HTMLElement): string {
   const signature = signatureOf(element);
   const first = signature.split(/[|·\n]/)[0]?.trim();
   return (first || element.getAttribute("name") || "this field").slice(0, 60);
@@ -384,31 +508,61 @@ export function detectFields(
       continue;
     }
 
-    if (!element || !isFillable(element)) continue;
+    if (!element) continue;
+
+    /**
+     * A "combo" rule may point at anything.
+     *
+     * That is the point of the override: the widget it names is a `<div>` with
+     * a listbox behind it, not a form control, so requiring one here would
+     * reject exactly the rules a hand-written map exists to carry. Every other
+     * rule still has to name something a value can be written into.
+     */
+    const target: HTMLElement | null = isFillable(element)
+      ? element
+      : rule.control === "combo" && element instanceof HTMLElement
+        ? element
+        : null;
+
+    if (!target) continue;
 
     claimed.add(rule.key);
-    seen.add(element);
+    seen.add(target);
     matches.push({
-      element,
+      element: target,
       key: rule.key,
       confidence: 1,
-      label: labelOf(element),
+      label: labelOf(target),
       control: rule.control,
     });
   }
 
-  for (const element of root.querySelectorAll("input, textarea, select")) {
+  for (const element of root.querySelectorAll(CANDIDATES)) {
     if (seen.has(element)) continue;
-    if (!isFillable(element)) continue;
 
-    const autocomplete = element.getAttribute("autocomplete")?.trim().toLowerCase();
+    // A combobox is taken as a combobox even when it IS an input: react-select
+    // and friends put `role="combobox"` on a real (often read-only) input, and
+    // typing into that box without picking from the list leaves the widget
+    // showing a value it has not actually selected.
+    const combo = isCombobox(element);
+    const target: HTMLElement | null = combo
+      ? isUsableCombobox(element)
+        ? element
+        : null
+      : isFillable(element)
+        ? element
+        : null;
+
+    if (!target) continue;
+
+    const autocomplete = target.getAttribute("autocomplete")?.trim().toLowerCase();
     // Tokens can be space-separated and section-prefixed ("shipping given-name").
     const token = autocomplete?.split(/\s+/).pop();
     const fromAutocomplete = token ? BY_AUTOCOMPLETE.get(token) : undefined;
 
     const match = fromAutocomplete
       ? { key: fromAutocomplete, confidence: 1 }
-      : scoreKeywords(signatureOf(element));
+      : scoreKeywords(signatureOf(target));
 
     if (!match || match.confidence < CONFIDENCE_THRESHOLD) continue;
     if (!FILLABLE_FIELDS.has(match.key)) continue;
@@ -419,7 +573,20 @@ export function detectFields(
     if (claimed.has(match.key)) continue;
     claimed.add(match.key);
 
-    matches.push({ element, key: match.key, confidence: match.confidence, label: labelOf(element) });
+    matches.push({
+      element: target,
+      key: match.key,
+      confidence: match.confidence,
+      label: labelOf(target),
+      control: combo ? "combo" : undefined,
+    });
+
+    // A combobox wrapper usually contains a real input of its own - the search
+    // box. Claiming that separately would type the answer in twice and fight
+    // the widget for control of its own field.
+    if (combo) {
+      for (const inner of target.querySelectorAll("input, textarea, select")) seen.add(inner);
+    }
   }
 
   return matches;

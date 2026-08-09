@@ -94,7 +94,12 @@ export const WEB_ACCESSIBLE_RESOURCES: {
   use_dynamic_url: boolean;
 }[] = [
   {
-    resources: ["assets/*", "src/content/*"],
+    // `assets/*` and nothing else. The whole loader chain lives there - the
+    // stub, the module it imports, and the shared config chunk - so listing the
+    // source directory as well added no reach. What it DID do was make the
+    // bundler treat every file in src/content as an entry point and emit it,
+    // test files included, into the shipped package.
+    resources: ["assets/*"],
     matches: ["<all_urls>"],
     use_dynamic_url: false,
   },

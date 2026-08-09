@@ -1,5 +1,6 @@
-import { detectFields, type FieldMap, type FieldMatch } from "./detect";
+import { detectFields, isFieldElement, type FieldMap, type FieldMatch } from "./detect";
 import { fillField } from "./fill";
+import { fillCombo, NOT_A_DROPDOWN } from "./combo";
 import { type VaultData } from "@/shared/vault";
 import { FILLABLE_FIELDS, resolveValue } from "./fields";
 import type {
@@ -105,7 +106,20 @@ function openPage(page: SitePage): void {
 
 /* ------------------------------------------------------------------ filling */
 
-function runFill(data: VaultData, found: readonly FieldMatch[]): FillReport {
+function filled(match: FieldMatch): { key: string; label: string } {
+  return { key: match.key, label: FILLABLE_FIELDS.get(match.key)?.label ?? match.key };
+}
+
+/**
+ * Async because custom dropdowns are.
+ *
+ * There is no synchronous way to know a widget has rendered its list, so
+ * combo.ts polls briefly - and that has to be awaited here rather than fired
+ * and forgotten, or the report would be written before half the fills had
+ * happened. Everything downstream (the panel's button, the popup's message
+ * handler) already sits behind a promise, so the cost is confined to this file.
+ */
+async function runFill(data: VaultData, found: readonly FieldMatch[]): Promise<FillReport> {
   const report: FillReport = { filled: [], skipped: [] };
 
   for (const match of found) {
@@ -120,20 +134,41 @@ function runFill(data: VaultData, found: readonly FieldMatch[]): FillReport {
       continue;
     }
 
-    // Custom dropdowns need a click-open/type/pick sequence that fill.ts does
-    // not implement yet. Reported rather than attempted: a half-driven combobox
-    // can leave a form in a worse state than an untouched one.
     if (match.control === "combo") {
-      report.skipped.push({ label: match.label, reason: "dropdown needs a manual pick" });
+      // A yes/no dropdown lists "Yes" and "No", never "true" and "false" -
+      // the same wording setBoolean falls back to for a text control.
+      const wanted = typeof value === "boolean" ? (value ? "Yes" : "No") : value;
+      const outcome = await fillCombo(match.element, wanted);
+
+      if (outcome.ok) {
+        report.filled.push(filled(match));
+        continue;
+      }
+
+      /**
+       * Only ONE failure falls through to the plain path.
+       *
+       * "Not a dropdown" means the element declared `role="combobox"` and then
+       * never opened a list, so treating it as the ordinary input it turned out
+       * to be costs nothing. Every other failure is a real dropdown we could
+       * not satisfy, and typing free text into one of those leaves a widget
+       * showing a value it has not selected - which submits as blank, or as
+       * whatever the widget picks on blur.
+       */
+      if (outcome.reason !== NOT_A_DROPDOWN || !isFieldElement(match.element)) {
+        report.skipped.push({ label: match.label, reason: outcome.reason });
+        continue;
+      }
+    }
+
+    if (!isFieldElement(match.element)) {
+      report.skipped.push({ label: match.label, reason: "unsupported control" });
       continue;
     }
 
     const outcome = fillField(match.element, value);
-    if (outcome.ok) {
-      report.filled.push({ key: match.key, label: FILLABLE_FIELDS.get(match.key)?.label ?? match.key });
-    } else {
-      report.skipped.push({ label: match.label, reason: outcome.reason });
-    }
+    if (outcome.ok) report.filled.push(filled(match));
+    else report.skipped.push({ label: match.label, reason: outcome.reason });
   }
 
   return report;
@@ -173,17 +208,39 @@ function redetect(): void {
  * "we never matched that field" or "we matched it and had nothing saved", and
  * those need completely different fixes.
  */
+/**
+ * Enough about an unmatched control to say why it was missed.
+ *
+ * A bare `name` was not enough: the fields that go unmatched most often are
+ * precisely the ones with generated names and no label, and "answer_8321" in a
+ * bug report is indistinguishable from every other field on the page. The role
+ * matters as much as the tag now that custom dropdowns are matched too.
+ */
+function describe(element: Element): string {
+  const role = element.getAttribute("role");
+
+  return [
+    element.tagName.toLowerCase(),
+    role ? `role=${role}` : "",
+    element.getAttribute("name") || element.id || "",
+    element.getAttribute("placeholder") || element.getAttribute("aria-label") || "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function explain(data: VaultData | null): void {
   const rows = matches.map((match) => ({
     label: match.label,
     key: match.key,
     confidence: Number(match.confidence.toFixed(2)),
+    control: match.control ?? "input",
     value: data ? (resolveValue(match.key, data) === undefined ? "(nothing saved)" : "ok") : "?",
   }));
 
-  const unmatched = [...document.querySelectorAll("input, textarea, select")]
+  const unmatched = [...document.querySelectorAll('input, textarea, select, [role="combobox"]')]
     .filter((element) => !matches.some((match) => match.element === element))
-    .map((element) => element.getAttribute("name") || element.id || element.tagName.toLowerCase());
+    .map(describe);
 
   console.debug("[Job Autofill] matched %d field(s)", rows.length, rows);
   console.debug("[Job Autofill] not matched:", unmatched);
@@ -212,7 +269,7 @@ async function fillWholeForm(): Promise<void> {
 
   explain(values.data);
 
-  const report = runFill(values.data, matches);
+  const report = await runFill(values.data, matches);
   panel?.setState({
     kind: "report",
     filled: report.filled.length,
@@ -324,30 +381,38 @@ function reconcile(): void {
 
 /* ------------------------------------------------------- popup-driven fills */
 
+async function fillFromPopup(data: VaultData): Promise<FillReport> {
+  redetect();
+  const report = await runFill(data, matches);
+
+  // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab,
+  // so a career page with an embedded board runs this in both the wrapper and
+  // the board. Only a frame that had something to fill should say anything -
+  // otherwise an unrelated frame stacks a "nothing matched" card on top of
+  // the successful fill the user was actually watching.
+  if (matches.length > 0) {
+    ensurePanel();
+    panel?.setState({
+      kind: "report",
+      filled: report.filled.length,
+      skipped: report.skipped.length,
+    });
+    panel?.openOnce();
+  }
+
+  return report;
+}
+
 function listenForFills(): void {
   chrome.runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
     if (message?.type !== "FILL_NOW") return false;
 
-    redetect();
-    const report = runFill(message.data, matches);
-
-    // `chrome.tabs.sendMessage` from the popup reaches EVERY frame in the tab,
-    // so a career page with an embedded board runs this in both the wrapper and
-    // the board. Only a frame that had something to fill should say anything -
-    // otherwise an unrelated frame stacks a "nothing matched" card on top of
-    // the successful fill the user was actually watching.
-    if (matches.length > 0) {
-      ensurePanel();
-      panel?.setState({
-        kind: "report",
-        filled: report.filled.length,
-        skipped: report.skipped.length,
-      });
-      panel?.openOnce();
-    }
-
-    sendResponse(report);
-    return false;
+    // `true` keeps the message channel open until the promise settles. Filling
+    // is asynchronous now that custom dropdowns are driven rather than skipped,
+    // and answering synchronously would report an empty result on every form
+    // that has one.
+    void fillFromPopup(message.data).then(sendResponse);
+    return true;
   });
 }
 

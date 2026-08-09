@@ -324,3 +324,134 @@ describe("detectFields: unassociated label text", () => {
     expect(keyFor(root, '[name="loc_1"]')).toBe("currentLocation");
   });
 });
+
+describe("the way Indian ATSs ask", () => {
+  it("recognises 'Available To Join (in days)' as a notice period", () => {
+    // Keka's wording, and none of it overlaps "notice" - so before this the
+    // field matched nothing at all on the forms that ask it most.
+    const root = form(`<label for="j">Available To Join (in days)</label><input id="j" />`);
+    expect(keyFor(root, "#j")).toBe("noticePeriod");
+  });
+
+  it("recognises the other joining-time phrasings", () => {
+    for (const label of ["Days to join", "Joining time", "Notice period"]) {
+      const root = form(`<label for="j">${label}</label><input id="j" />`);
+      expect(keyFor(root, "#j"), label).toBe("noticePeriod");
+    }
+  });
+
+  it("splits experience across a Years input and a Months dropdown", () => {
+    const root = form(`
+      <div class="col"><label for="y">Years</label><input id="y" /></div>
+      <div class="col"><label for="m">Months</label>
+        <select id="m"><option></option><option>0</option><option>6</option></select>
+      </div>
+    `);
+
+    expect(keyFor(root, "#y")).toBe("experienceYears");
+    expect(keyFor(root, "#m")).toBe("experienceMonths");
+  });
+
+  it("reads Years and Months from placeholders alone", () => {
+    // Keka labels the pair once, above both controls, and puts the unit in the
+    // placeholder - so the placeholder is the only thing telling them apart.
+    const root = form(`
+      <div><span>Experience Details</span>
+        <div class="col"><input name="exp_y" placeholder="Years" /></div>
+        <div class="col"><input name="exp_m" placeholder="Months" /></div>
+      </div>
+    `);
+
+    expect(keyFor(root, '[name="exp_y"]')).toBe("experienceYears");
+    expect(keyFor(root, '[name="exp_m"]')).toBe("experienceMonths");
+  });
+
+  it("still answers a form that asks for experience only once", () => {
+    // The split keys must not steal a question that was asked properly - this
+    // box wants "5.5", not the whole-years half of it.
+    const root = form(`<label for="e">Total experience</label><input id="e" />`);
+    expect(keyFor(root, "#e")).toBe("yearsExperience");
+  });
+
+  it("keeps the bare year and month keywords off everything else", () => {
+    // These are the shortest keywords in the file, and a job application is
+    // full of other questions measured in years.
+    const labels = [
+      "Notice period in months",
+      "Year of passing",
+      "Years at current address",
+      "Age in years",
+      "Expected CTC per year",
+      "Years of experience with Python",
+      "Highest degree - year completed",
+    ];
+
+    for (const label of labels) {
+      const root = form(`<label for="x">${label}</label><input id="x" />`);
+      const key = keyFor(root, "#x");
+
+      expect(key, label).not.toBe("experienceYears");
+      expect(key, label).not.toBe("experienceMonths");
+    }
+  });
+
+  it("sends the split keys to the right half", () => {
+    const root = form(`<label for="n">Notice period in months</label><input id="n" />`);
+    expect(keyFor(root, "#n")).toBe("noticePeriod");
+  });
+});
+
+describe("custom dropdowns", () => {
+  it("matches a combobox that is not a form control at all", () => {
+    const root = form(`
+      <div class="row"><span>Country code</span>
+        <div role="combobox" aria-controls="l"><span>Select</span></div>
+        <div id="l" role="listbox" hidden></div>
+      </div>
+    `);
+
+    const match = detectFields(root).find((m) => m.key === "phoneCountryCode");
+    expect(match?.element.getAttribute("role")).toBe("combobox");
+    expect(match?.control).toBe("combo");
+  });
+
+  it("marks an input that declares itself a combobox as one", () => {
+    // react-select and friends put the role on a real input. Typing into it
+    // without picking from the list leaves the widget showing a value it has
+    // not selected, so it must not be driven as a plain field.
+    const root = form(`<input id="c" role="combobox" aria-label="Country" />`);
+    const match = detectFields(root).find((m) => m.element.id === "c");
+    expect(match?.control).toBe("combo");
+  });
+
+  it("does not claim a combobox's own search box separately", () => {
+    const root = form(`
+      <div role="combobox" aria-label="Country"><input class="search" /></div>
+    `);
+
+    const claimed = detectFields(root).map((m) => m.element);
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]).not.toBe(root.querySelector(".search"));
+  });
+
+  it("leaves a disabled combobox alone", () => {
+    const root = form(`
+      <div role="combobox" aria-label="Country" aria-disabled="true"><span>Select</span></div>
+    `);
+    expect(detectFields(root)).toHaveLength(0);
+  });
+
+  it("counts a combobox when deciding a container holds more than one field", () => {
+    // The one-field rule is only as good as the count. A "Years" input beside a
+    // div-based months dropdown would otherwise look like a lone field, and
+    // both controls would inherit the text describing the pair.
+    const root = form(`
+      <div class="pair">
+        First name Last name
+        <input name="p_1" />
+        <div role="combobox"><span>Select</span></div>
+      </div>
+    `);
+    expect(keyFor(root, '[name="p_1"]')).toBeUndefined();
+  });
+});

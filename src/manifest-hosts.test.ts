@@ -13,6 +13,18 @@ describe("web_accessible_resources", () => {
     expect(broad, "no entry covers sites outside the ATS list").toBeDefined();
     expect(broad!.resources.some((resource) => resource.startsWith("assets/"))).toBe(true);
   });
+
+  it("exposes the built bundle and not the source tree", () => {
+    // Listing `src/content/*` here made the bundler treat every file in that
+    // directory as an entry point and emit it - test files and all - into the
+    // shipped package. The loader chain is entirely under assets/, so it bought
+    // nothing for it.
+    for (const entry of WEB_ACCESSIBLE_RESOURCES) {
+      for (const resource of entry.resources) {
+        expect(resource.startsWith("src/"), resource).toBe(false);
+      }
+    }
+  });
 });
 
 describe("ATS_MATCHES", () => {
