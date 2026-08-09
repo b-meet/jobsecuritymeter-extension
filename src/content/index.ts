@@ -194,9 +194,22 @@ let observer: MutationObserver | null = null;
  */
 let temporary = false;
 
+/**
+ * What the in-field chip may offer on.
+ *
+ * Custom dropdowns are held back. The chip's entire model is "this box is
+ * empty, click to fill it", and neither half of that survives a combobox: the
+ * input it sits in holds the search text rather than the selection, so an
+ * answered dropdown reads as empty, and one click cannot do the open/filter/
+ * pick sequence the widget needs. The panel's Fill drives those instead.
+ */
+function chipMatches(): FieldMatch[] {
+  return matches.filter((match) => match.control !== "combo");
+}
+
 function redetect(): void {
   matches = detectFields(document, fieldMap);
-  chip?.setMatches(matches);
+  chip?.setMatches(chipMatches());
 }
 
 /**
@@ -354,7 +367,7 @@ function ensurePanel(): void {
 function ensureChip(): void {
   if (chip || tucked) return;
   chip = mountChip((element, key) => void fillOneField(element, key));
-  chip.setMatches(matches);
+  chip.setMatches(chipMatches());
 }
 
 /**
