@@ -8,6 +8,28 @@
  */
 
 /**
+ * The toolbar and store icons.
+ *
+ * REQUIRED FOR THE STORE, AND FOR THE PRODUCT TO MAKE ANY SENSE. Without these
+ * Chrome draws a grey jigsaw piece in the toolbar - and for an extension whose
+ * whole flow is "click the toolbar icon", that is the one pixel the user has to
+ * find. The Web Store listing renders the 128 as well, so shipping without it
+ * is a review finding on top of a usability one.
+ *
+ * Generated from the same bolt the on-page handle draws (content/ui/theme.ts),
+ * so the toolbar and the page agree about what this extension looks like. The
+ * source SVG is checked in beside the PNGs.
+ *
+ * Paths are relative to the build output root: Vite copies `public/` there
+ * verbatim, so `public/icons/icon-16.png` ships as `icons/icon-16.png`.
+ */
+export const ICON_SIZES = [16, 32, 48, 128] as const;
+
+export const ICONS: Record<string, string> = Object.fromEntries(
+  ICON_SIZES.map((size) => [String(size), `icons/icon-${size}.png`]),
+);
+
+/**
  * Applicant tracking systems the content script is injected into.
  *
  * DELIBERATELY AN ALLOWLIST, NOT `<all_urls>`. Broad host permissions send a
