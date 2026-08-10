@@ -1,0 +1,10 @@
+#!/bin/sh
+# Source-integrity guard (see scripts/guard-source.mjs).
+#
+# Runs the smuggled-payload detector before every commit, so a concealed
+# loader is caught at commit time - not after it has been pushed and has
+# run in CI or a build. Node built-ins only; works with no node_modules.
+#
+# This is defence-in-depth: it can be bypassed with `git commit --no-verify`.
+# Do that only with a deliberate, explained reason.
+exec node scripts/guard-source.mjs

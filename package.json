@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:contract": "node scripts/check-contract.mjs",
-    "guard": "node scripts/guard-source.mjs"
+    "guard": "node scripts/guard-source.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",
