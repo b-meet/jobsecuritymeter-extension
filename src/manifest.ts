@@ -1,5 +1,5 @@
 import { defineManifest } from "@crxjs/vite-plugin";
-import { ATS_MATCHES, WEB_ACCESSIBLE_RESOURCES } from "./manifest-hosts";
+import { ATS_MATCHES, ICONS, WEB_ACCESSIBLE_RESOURCES } from "./manifest-hosts";
 
 const SITE = process.env.VITE_SITE_ORIGIN ?? "https://jobsecuritymeter.com";
 
@@ -78,9 +78,13 @@ export default defineManifest((env) => {
       },
     ],
 
+    // See manifest-hosts.ts for why these are not optional.
+    icons: ICONS,
+
     action: {
       default_popup: "src/popup/index.html",
       default_title: "Job Autofill",
+      default_icon: ICONS,
     },
 
     /**

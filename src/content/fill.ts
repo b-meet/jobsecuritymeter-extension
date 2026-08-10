@@ -1,4 +1,5 @@
 import type { FieldElement } from "./detect";
+import { pickOption } from "./options";
 
 /**
  * Writing values into fields.
@@ -48,6 +49,22 @@ function notify(element: FieldElement): void {
   element.dispatchEvent(new InputEvent("input", { ...key, inputType: "insertText" }));
   element.dispatchEvent(new KeyboardEvent("keyup", key));
   element.dispatchEvent(new Event("change", key));
+}
+
+/**
+ * Write a value and tell the page about it. Nothing else.
+ *
+ * Split out of setText for combo.ts, which types into a dropdown's search box
+ * and must NOT have the focus and blur that setText wraps around this: blurring
+ * a combobox closes the list before the option can be picked.
+ */
+export function typeInto(element: FieldElement, value: string): boolean {
+  const set = nativeSetter(element);
+  if (!set) return false;
+
+  set(value);
+  notify(element);
+  return true;
 }
 
 function setText(element: FieldElement, value: string): boolean {
@@ -105,31 +122,28 @@ function setBoolean(element: FieldElement, value: boolean): boolean {
 /**
  * Native `<select>`: match an option by value or visible text.
  *
+ * The choosing is delegated to options.ts, which is also what combo.ts uses, so
+ * a country dial code resolves the same way whether the form built its list as
+ * a `<select>` or as a custom widget. It replaced a first-match `includes` here
+ * that would answer "+1" with "India (+91)" - see that file for why.
+ *
  * Custom dropdowns (react-select, which Greenhouse and Lever both use) are NOT
- * `<select>` elements and cannot be filled this way - they need a click-open,
- * type, click-option sequence per ATS. Those come from the remote field map;
- * until then they are reported as skipped rather than silently missed.
+ * `<select>` elements and cannot be filled this way; combo.ts drives those.
  */
 function setSelect(element: HTMLSelectElement, value: string): boolean {
-  const wanted = value.trim().toLowerCase();
-  if (!wanted) return false;
+  const option = pickOption(value, Array.from(element.options), (candidate) => [
+    candidate.value,
+    candidate.text,
+  ]);
 
-  for (const option of Array.from(element.options)) {
-    const matches =
-      option.value.toLowerCase() === wanted ||
-      option.text.trim().toLowerCase() === wanted ||
-      option.text.trim().toLowerCase().includes(wanted);
+  if (!option) return false;
 
-    if (matches) {
-      const set = nativeSetter(element);
-      if (set) set(option.value);
-      else element.value = option.value;
-      notify(element);
-      return true;
-    }
-  }
+  const set = nativeSetter(element);
+  if (set) set(option.value);
+  else element.value = option.value;
 
-  return false;
+  notify(element);
+  return true;
 }
 
 export type FillOutcome = { ok: true } | { ok: false; reason: string };
