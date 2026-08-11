@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "check:contract": "node scripts/check-contract.mjs",
     "guard": "node scripts/guard-source.mjs",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "package": "node scripts/package.mjs",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "assets": "node scripts/capture-store-assets.mjs"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.28",

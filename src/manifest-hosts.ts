@@ -17,11 +17,14 @@
  * is a review finding on top of a usability one.
  *
  * Generated from the same bolt the on-page handle draws (content/ui/theme.ts),
- * so the toolbar and the page agree about what this extension looks like. The
- * source SVG is checked in beside the PNGs.
+ * so the toolbar and the page agree about what this extension looks like.
  *
  * Paths are relative to the build output root: Vite copies `public/` there
  * verbatim, so `public/icons/icon-16.png` ships as `icons/icon-16.png`.
+ *
+ * WHICH IS WHY THE SOURCE SVG LIVES IN `design/`, NOT BESIDE THE PNGS. Anything
+ * under `public/` is copied into the package as-is, so keeping it next to the
+ * exports shipped a file to every user that nothing loads.
  */
 export const ICON_SIZES = [16, 32, 48, 128] as const;
 

@@ -1,0 +1,214 @@
+<!doctype html>
+<!--
+  Sample application form, used only to capture store screenshots.
+
+  DELIBERATELY GENERIC. The capture script serves this from an allowlisted ATS
+  host so that the real content script auto-injects and the real on-page UI
+  mounts - that is the only reason the host matters. The page itself is a
+  fictional company's careers form and copies no ATS vendor's branding, layout,
+  or wording: a screenshot that looked like Greenhouse's own product would be
+  using their trade dress to sell ours.
+
+  The field markup is what makes this a fair test rather than a staged one:
+
+    - Most fields carry a real `autocomplete` token, because real forms do, and
+      that is the matcher's first and most trusted layer.
+    - "Current employer" has a label and no autocomplete, exercising keyword
+      scoring.
+    - "How did you hear about us" is a plain div above its input with a
+      generated name, which is the unlabelled case that layer 4 exists for.
+    - "Company name" and "Expected CTC" are present precisely because they are
+      the traps: `fullName` must NOT fill the first and `currentSalary` must NOT
+      fill the second. A screenshot showing those two correctly left alone is
+      worth more than one showing everything full.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Senior Product Engineer — Northwind Labs</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 400 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #1a1a1a;
+        background: #fbfbfa;
+      }
+      header {
+        border-bottom: 1px solid #e6e4e0;
+        background: #fff;
+        padding: 18px 0;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 0 28px; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+      .brand span {
+        display: grid; place-items: center;
+        width: 26px; height: 26px; border-radius: 6px;
+        background: #23394d; color: #fff; font-size: 13px;
+      }
+      h1 { font-size: 26px; margin: 30px 0 6px; letter-spacing: -0.02em; }
+      .meta { color: #6b6b6b; font-size: 14px; margin: 0 0 28px; }
+      h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+        color: #8a8a8a; margin: 30px 0 14px; font-weight: 700;
+      }
+      .field { margin-bottom: 16px; }
+      .row { display: flex; gap: 14px; }
+      .row .field { flex: 1; }
+      label, .pseudo-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+      .req { color: #c0392b; }
+      input, select, textarea {
+        width: 100%; padding: 9px 11px; font: inherit; font-size: 14px;
+        border: 1px solid #cfcdc8; border-radius: 6px; background: #fff; color: #1a1a1a;
+      }
+      textarea { resize: vertical; min-height: 74px; }
+      input:focus, select:focus, textarea:focus {
+        outline: none; border-color: #23394d; box-shadow: 0 0 0 3px rgba(35,57,77,.12);
+      }
+      .hint { font-size: 12px; color: #8a8a8a; margin-top: 5px; }
+      .submit {
+        margin: 30px 0 60px; padding: 11px 22px; font: 700 15px system-ui, sans-serif;
+        background: #23394d; color: #fff; border: 0; border-radius: 7px; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap"><div class="brand"><span>N</span> Northwind Labs</div></div>
+    </header>
+
+    <main class="wrap">
+      <h1>Senior Product Engineer</h1>
+      <p class="meta">Remote · Full-time · Engineering</p>
+
+      <form>
+        <h2>Your details</h2>
+
+        <div class="row">
+          <div class="field">
+            <label for="fn">First name <span class="req">*</span></label>
+            <input id="fn" name="first_name" autocomplete="given-name" required />
+          </div>
+          <div class="field">
+            <label for="ln">Last name <span class="req">*</span></label>
+            <input id="ln" name="last_name" autocomplete="family-name" required />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="em">Email <span class="req">*</span></label>
+            <input id="em" name="email" type="email" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label for="ph">Phone</label>
+            <input id="ph" name="phone" type="tel" autocomplete="tel-national" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="loc">Location</label>
+          <input id="loc" name="location" autocomplete="address-level2" />
+          <p class="hint">City and state or region.</p>
+        </div>
+
+        <h2>Experience</h2>
+
+        <!-- Labelled, no autocomplete token: keyword scoring has to earn this one. -->
+        <div class="field">
+          <label for="emp">Current employer</label>
+          <input id="emp" name="current_employer" />
+        </div>
+
+        <div class="field">
+          <label for="ti">Current job title</label>
+          <input id="ti" name="current_title" />
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="yrs">Years of experience</label>
+            <input id="yrs" name="years_experience" />
+          </div>
+          <div class="field">
+            <label for="np">Notice period</label>
+            <input id="np" name="notice_period" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="li">LinkedIn profile</label>
+          <input id="li" name="linkedin_url" type="url" autocomplete="url" />
+        </div>
+
+        <div class="field">
+          <label for="gh">GitHub</label>
+          <input id="gh" name="github_url" type="url" />
+        </div>
+
+        <div class="field">
+          <label for="sk">Skills</label>
+          <input id="sk" name="skills" />
+          <p class="hint">Comma separated.</p>
+        </div>
+
+        <h2>Compensation and availability</h2>
+
+        <div class="row">
+          <div class="field">
+            <label for="cur">Current CTC</label>
+            <input id="cur" name="current_ctc" />
+          </div>
+          <!--
+            THE TRAP. `currentSalary` bows out on "expected", so this must stay
+            empty even though "CTC" matches. A screenshot proving that is the
+            most useful one in the set.
+          -->
+          <div class="field">
+            <label for="exp">Expected CTC</label>
+            <input id="exp" name="expected_ctc" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="auth">Are you authorised to work in this country?</label>
+          <select id="auth" name="work_authorized">
+            <option value="">Please select</option>
+            <option>Yes</option>
+            <option>No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="start">Earliest start date</label>
+          <input id="start" name="start_date" type="date" />
+        </div>
+
+        <!--
+          No <label> at all - the description sits in a plain div, and the input
+          has a generated name. This is the case layer 4 (nearby text) exists
+          for, and it only runs because this container holds exactly one field.
+        -->
+        <div class="field">
+          <div class="pseudo-label">How did you hear about us?</div>
+          <input name="answer_74128" />
+        </div>
+
+        <!--
+          The other trap: `fullName` bows out on "company", so this stays empty.
+        -->
+        <div class="field">
+          <label for="ref">Referring company name</label>
+          <input id="ref" name="referrer_company" />
+        </div>
+
+        <div class="field">
+          <label for="cl">Cover letter</label>
+          <textarea id="cl" name="cover_letter"></textarea>
+        </div>
+
+        <button class="submit" type="button">Submit application</button>
+      </form>
+    </main>
+  </body>
+</html>

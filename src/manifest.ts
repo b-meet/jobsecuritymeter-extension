@@ -24,6 +24,24 @@ export default defineManifest((env) => {
     description:
       "Fill job applications from your saved profile. One click across Greenhouse, Lever, Ashby and more.",
 
+    /**
+     * Shown on the store listing as the developer's website, and the link
+     * Chrome puts in the extension's own details page. Without it the listing
+     * has no route back to the account the profile actually lives in.
+     */
+    homepage_url: SITE,
+
+    /**
+     * `optional_host_permissions` landed in Chrome 119.
+     *
+     * Below that the manifest key is ignored, which means "Always run on this
+     * site" silently cannot work: the permission request is rejected, the popup
+     * falls back to telling the user to use "Fill this page", and the honest
+     * explanation - your browser is too old - is one nobody can reach. Refusing
+     * the install states it once, at the only moment it can be acted on.
+     */
+    minimum_chrome_version: "119",
+
     permissions: [
       // chrome.storage.local: the session and the cached field map.
       "storage",
