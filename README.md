@@ -23,6 +23,29 @@ Developer mode on.
 the same publishable key the website already ships in its client bundle — the
 service role key must never appear in this repository.
 
+## Publishing
+
+```bash
+npm run package    # build + refuse a bad build + write build/job-autofill-<version>.zip
+npm run assets     # regenerate the store screenshots (needs Playwright, see store/assets)
+```
+
+`store/SUBMISSION.md` is the submission itself: the listing copy, the single
+purpose statement, a justification for every permission, the data-usage
+disclosures, and the account-level bits the dashboard blocks on (publisher name,
+and the EEA trader declaration — which is "trader", and which publishes a
+contact address on the listing, so decide which address before clicking it).
+
+`npm run package` refuses to produce a zip from a build that would be unsafe or
+broken rather than leaving it to be noticed later:
+
+- a **development build**, which trusts `http://localhost` in
+  `externally_connectable` and published would accept a session from any dev
+  server on the user's machine;
+- a build with **no Supabase publishable key**, which installs fine and fails on
+  the first token refresh;
+- a build **missing a declared icon**, or one carrying **test files**.
+
 ## How it fits together
 
 ```

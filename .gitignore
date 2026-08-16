@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Upload zips from `npm run package`.
+build/
 .env
 .env.local
 *.log

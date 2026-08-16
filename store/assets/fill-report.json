@@ -1,0 +1,78 @@
+{
+  "filled": [
+    {
+      "key": "firstName",
+      "label": "First name"
+    },
+    {
+      "key": "lastName",
+      "label": "Last name"
+    },
+    {
+      "key": "email",
+      "label": "Email"
+    },
+    {
+      "key": "phone",
+      "label": "Phone"
+    },
+    {
+      "key": "city",
+      "label": "City"
+    },
+    {
+      "key": "currentCompany",
+      "label": "Current company"
+    },
+    {
+      "key": "currentTitle",
+      "label": "Current title"
+    },
+    {
+      "key": "yearsExperience",
+      "label": "Years of experience"
+    },
+    {
+      "key": "noticePeriod",
+      "label": "Notice period"
+    },
+    {
+      "key": "linkedinUrl",
+      "label": "LinkedIn"
+    },
+    {
+      "key": "githubUrl",
+      "label": "GitHub"
+    },
+    {
+      "key": "skills",
+      "label": "Skills"
+    },
+    {
+      "key": "currentSalary",
+      "label": "Current salary"
+    },
+    {
+      "key": "desiredSalary",
+      "label": "Desired salary"
+    },
+    {
+      "key": "earliestStartDate",
+      "label": "Earliest start date"
+    },
+    {
+      "key": "howDidYouHear",
+      "label": "How did you hear about us"
+    },
+    {
+      "key": "defaultCoverLetter",
+      "label": "Default cover letter"
+    }
+  ],
+  "skipped": [
+    {
+      "label": "are you authorised to work in this country? work_authorized ",
+      "reason": "unsupported control"
+    }
+  ]
+}
