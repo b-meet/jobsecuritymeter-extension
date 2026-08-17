@@ -103,7 +103,7 @@ Name, email, phone, address, LinkedIn and GitHub, current company and title, yea
 
 WHERE IT WORKS
 
-Automatically on the major applicant tracking systems: Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Keka, Darwinbox, Zoho Recruit, Freshteam, Workable, BambooHR, iCIMS, Taleo, SuccessFactors, Jobvite, Recruitee, Personio, Teamtailor, Breezy, JazzHR, Pinpoint, Avature, Eightfold, Phenom and join.com.
+Automatically on the major applicant tracking systems — Greenhouse, Lever, Ashby, Workday and around twenty others — so the fill button is there the moment you open a listing.
 
 Most companies run their own careers page, so anywhere else you can either press "Fill this page" in the popup — which works on any site, with no permission prompt and no standing access — or grant one site permanently if you apply through it often.
 
@@ -124,7 +124,7 @@ Full detail: https://jobsecuritymeter.com/privacy
 
 NOT AFFILIATED
 
-Greenhouse, Lever, Ashby, Workday, Keka, Zoho Recruit and the other platforms named above are trademarks of their respective owners. Job Autofill is not affiliated with, endorsed by, or sponsored by any of them. We name them only to say where the extension works.
+The applicant tracking systems named above are trademarks of their respective owners. Job Autofill is not affiliated with, endorsed by, or sponsored by any of them. We name them only to say where the extension works.
 
 KNOWN LIMITS, STATED UP FRONT
 
