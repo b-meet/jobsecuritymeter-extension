@@ -146,7 +146,7 @@ Free to use. You need a Job Security Meter account, which is also free.
 | Store icon | 128×128 | yes | `public/icons/icon-128.png` |
 | Screenshot | 1280×800 | at least 1, up to 5 | `store/assets/screenshot-*.png` |
 | Small promo tile | 440×280 | for featuring | `store/assets/promo-small-440x280.png` |
-| Marquee | 1400×560 | for featuring | not made |
+| Marquee | 1400×560 | for featuring | `store/assets/promo-marquee-1400x560.png` |
 
 See `store/assets/README.md` for how the screenshots were produced and what to
 check before uploading them.
@@ -246,6 +246,51 @@ and token refresh), disclosed in the privacy policy.
 
 ---
 
+## "Not trusted by Enhanced Safe Browsing"
+
+Users with Enhanced Safe Browsing turned on get a **Proceed with caution -
+this extension is not trusted by Enhanced Safe Browsing** dialog on install,
+with Close as the default button. Expect it, and expect support questions
+about it.
+
+**It is not a finding against this extension.** Chrome trusts extensions from
+developers who have followed the Developer Program Policies for long enough to
+have a record; Google's guidance is that a new developer needs *at least a few
+months* of compliant publishing before their items are trusted. Until then
+every item from the account shows this, however clean it is. A genuine malware
+determination is a different, much louder interstitial.
+
+**Standard Safe Browsing is Chrome's default**, so this is not every visitor -
+only the subset who opted into Enhanced.
+
+**Nothing in the dashboard turns it off.** What is actually in our hands:
+
+- [ ] **Time, with no violations.** The clock is on the publisher account, and
+      a policy strike or a takedown resets the goodwill it accrues.
+- [ ] **Do not republish under a new item id to escape it.** The trust is not
+      attached to the item, so a fresh id restarts the install count and the
+      reviews for nothing.
+- [ ] **Keep the account complete** - verified contact email, publisher display
+      name, and the trader declaration above.
+- [ ] **Keep the Privacy practices tab exhaustive**, with a justification per
+      permission and a live privacy policy URL. Thin answers here are the most
+      common drag on a new publisher's standing.
+- [ ] **Stay off broad permissions.** `<all_urls>` in `host_permissions` would
+      deepen every review from here on; the curated ATS list plus optional
+      per-origin grants is the whole reason installs are quiet.
+- [ ] **No remote code, ever.** The manifest CSP enforces it and
+      `npm run package` refuses a build that breaks it. This is the single
+      fastest way to lose the standing that clears the warning.
+- [ ] **Be eligible for featuring** - both promo tiles exist for this reason
+      (`store/assets/README.md`).
+
+Meanwhile the main site says all of this in the user's own words rather than
+leaving them to guess: `/job-autofill` carries it under the install button and
+in the FAQ, and `/extension/connect` repeats it in the "we couldn't find the
+extension" state. If the wording here changes, change it there too.
+
+---
+
 ## What a reviewer is most likely to question
 
 Answers ready, rather than improvised under a rejection notice.
@@ -282,10 +327,12 @@ and the policy did not.
 
 ## After it is published
 
-1. Put the published extension id in `NEXT_PUBLIC_EXTENSION_ID` in the main
-   repo. `lib/shared/extension.ts` derives the store URL and the connect
-   handshake target from it, and both are inert until it is set — the connect
-   page cannot address the extension without it.
+1. Check `lib/shared/extension.ts` in the main repo. The published id is now
+   the default there and `EXTENSION_STORE_URL` is a constant, so the site links
+   and the connect handshake work with no configuration. Setting
+   `NEXT_PUBLIC_EXTENSION_ID` is only needed to point a deploy at a different
+   build — an unpacked one, or a second listing. **If the item is ever
+   republished under a new id, that default is what has to change.**
 2. Check the connect handshake against the **published** build. An unpacked
    build has a different id, so this is the one step that cannot be tested
    before publishing.
