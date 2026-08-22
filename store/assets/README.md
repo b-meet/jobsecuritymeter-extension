@@ -8,6 +8,18 @@ npm i --no-save playwright && npx playwright install chromium   # first time onl
 npm run assets
 ```
 
+The two promo tiles are drawn from the icon and the palette rather than
+photographed, so they have a second, much cheaper path that needs no build and
+no session:
+
+```bash
+npm run assets:promo
+```
+
+Both paths render the same markup (`scripts/promo-tiles.mjs`), so they cannot
+drift - `npm run assets` writes every file below, `npm run assets:promo` writes
+only the two tiles.
+
 | File | Size | Where it goes |
 | :--- | :--- | :--- |
 | `screenshot-card.png` | 1280×800 | Store listing → Screenshots |
@@ -15,6 +27,7 @@ npm run assets
 | `screenshot-chip.png` | 1280×800 | Store listing → Screenshots |
 | `screenshot-popup.png` | 1280×800 | Store listing → Screenshots |
 | `promo-small-440x280.png` | 440×280 | Store listing → Small promo tile |
+| `promo-marquee-1400x560.png` | 1400×560 | Store listing → Marquee promo tile |
 | `fill-report.json` | — | not uploaded; evidence, see below |
 
 ## These are photographs, not mock-ups
@@ -36,6 +49,16 @@ false: that the popup rendered as connected, and that the chip is actually
 painted over the field's right edge. A caption promising a button that is not in
 the picture is worse than no screenshot.
 
+## The marquee is not decoration
+
+It is the asset that makes the item *eligible to be considered* for featuring.
+That is worth having for a new listing beyond vanity: Enhanced Safe Browsing
+does not trust extensions from a developer new to the store for the first
+months, and the short list of things a publisher can actively do about it -
+rather than wait it out - is stay compliant, keep the listing complete, and be
+present on the store's own trust surfaces. Being disqualified from one of them
+over a missing 1400×560 PNG is the cheapest possible own goal.
+
 ## What to check before uploading
 
 - [ ] **`fill-report.json` shows a real fill.** It is written on every run and is
@@ -53,17 +76,26 @@ the picture is worse than no screenshot.
       details to the Chrome Web Store.
 - [ ] **Captions still match what the picture shows.** They are written in the
       script, not added afterwards.
+- [ ] **The tiles say nothing the listing does not.** Both carry the "never
+      submits, leaves a field blank rather than guess" line, which is the one
+      claim the whole design rests on. If that ever stops being true, these are
+      published marketing that says otherwise.
 
 ## Known gaps in the captures
 
-**No completeness meter in the popup screenshot.** The popup asks the service
-worker for status, which fetches `/api/vault`; Playwright cannot intercept
-requests made from an extension's service worker, so that fetch reaches the real
-network and fails. The worker treats a failed vault fetch as "connected,
-completion unknown" and the popup hides the meter — which is correct behaviour
-for a real network failure. The script reports the intercepted-call count so this
-shows up as a stated fact rather than a puzzle. If you want the meter in the
-picture, capture that one frame by hand against a signed-in browser.
+**The completeness meter in the popup screenshot depends on your Playwright
+version.** The popup asks the service worker for status, which fetches
+`/api/vault`. Whether that call can be intercepted is up to the harness: older
+Playwright could not route requests made from an extension's service worker, so
+the fetch reached the real network and failed, the worker reported "connected,
+completion unknown", and the popup hid the meter — correct behaviour for a real
+network failure, but a thinner screenshot. On 1.62 the route holds and the meter
+is in the frame, which is the version the committed capture was taken with.
+
+Either way the script prints the intercepted-call count, so this is a stated
+fact rather than a puzzle: **0 calls means no meter**, and the screenshot is
+still honest, just less complete. If you want it and cannot get it, capture that
+one frame by hand against a signed-in browser.
 
 **The `<select>` for work authorisation is reported as skipped** — visible as
 "1 field left for you" in two of the frames, and in `fill-report.json` as
