@@ -36,6 +36,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { TILES, renderTile } from "./promo-tiles.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
 const fixtures = join(root, "store/fixtures");
@@ -157,6 +159,15 @@ const VIEWPORT = { width: 1280, height: 800 };
 console.log("Launching Chromium with the built extension…");
 
 const context = await chromium.launchPersistentContext(join(tmp, "profile"), {
+  /**
+   * CHROMIUM_PATH is an escape hatch for a machine that already has a full
+   * Chromium (a CI image, a sandbox) and no Playwright-managed download. Unset
+   * - the normal case - Playwright uses the browser `npx playwright install`
+   * fetched. It must be a FULL Chromium for the same reason `headless` is false
+   * below: a headless-shell binary cannot load an extension at all.
+   */
+  executablePath: process.env.CHROMIUM_PATH || undefined,
+
   /**
    * `headless: false` IS LOAD-BEARING, and not because we want a window.
    *
@@ -486,47 +497,23 @@ await compose({
 });
 
 /* -------------------------------------------------------------------------- */
-/* Promo tile                                                                 */
+/* Promo tiles                                                                */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Drawn rather than photographed, so they live in promo-tiles.mjs and can also
+ * be regenerated on their own with `npm run assets:promo` - no build, no
+ * session. Rendered here too so one `npm run assets` still writes every file
+ * the listing needs.
+ */
 const icon = readFileSync(join(root, "public/icons/icon-128.png")).toString("base64");
 
 const tile = await context.newPage();
-await tile.setViewportSize({ width: 440, height: 280 });
-await tile.setContent(`
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 440px; height: 280px; overflow: hidden;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 14px; text-align: center; padding: 0 30px;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      background: linear-gradient(160deg, #2d5f4f 0%, #1d2a25 100%);
-      color: #f5f1e8;
-    }
-    /*
-      The icon is a white bolt on a GREEN rounded square, and the tile behind it
-      is also green - so on its own it reads as a smudge. The cream plate is what
-      separates the mark from its background.
-    */
-    .plate {
-      display: grid; place-items: center;
-      width: 76px; height: 76px; border-radius: 20px;
-      background: #f5f1e8;
-      box-shadow: 0 8px 22px rgba(0,0,0,.22);
-    }
-    .plate img { width: 52px; height: 52px; }
-    h1 { font-size: 27px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.15; }
-    p { font-size: 14px; font-weight: 500; color: rgba(245,241,232,.74); line-height: 1.45; }
-  </style>
-  <div class="plate"><img src="data:image/png;base64,${icon}" /></div>
-  <h1>Job Autofill</h1>
-  <p>Fill any job application from one saved profile.</p>
-`);
-await tile.waitForTimeout(400);
-await tile.screenshot({ path: join(outDir, "promo-small-440x280.png") });
+for (const spec of TILES) {
+  await renderTile(tile, spec, icon, join(outDir, spec.file));
+  console.log(`  wrote ${spec.file}`);
+}
 await tile.close();
-console.log("  wrote promo-small-440x280.png");
 
 /* -------------------------------------------------------------------------- */
 
